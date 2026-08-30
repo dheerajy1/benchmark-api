@@ -1,0 +1,187 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+
+    steps:
+      # ---------------------------------------------
+      # 1. Checkout repo with full history & tags
+      # ---------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ---------------------------------------------
+      # 1.1. Add summary for checkout
+      # ---------------------------------------------
+      - name: Add checkout summary
+        run: |
+          echo "## Repository Checkout" >> $GITHUB_STEP_SUMMARY
+          echo "Checked out branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Repository ready for release"
+
+      # ---------------------------------------------
+      # 2. Setup Rust toolchain
+      # ---------------------------------------------
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # ---------------------------------------------
+      # 2.1. Add summary for Rust
+      # ---------------------------------------------
+      - name: Add Rust summary
+        run: |
+          echo "## Rust Setup" >> $GITHUB_STEP_SUMMARY
+          echo "Rust version: $(rustc --version)" >> $GITHUB_STEP_SUMMARY
+          echo "Cargo version: $(cargo --version)" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Rust environment configured"
+
+      # ---------------------------------------------
+      # 3. Cache Rust dependencies & build artifacts
+      # ---------------------------------------------
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        id: rust-cache
+
+      # ---------------------------------------------
+      # 3.1. Add summary for Rust cache
+      # ---------------------------------------------
+      - name: Add Rust cache summary
+        run: |
+          CACHE_HIT=${{ steps.rust-cache.outputs.cache-hit }}
+          echo "## Rust Dependency Cache" >> $GITHUB_STEP_SUMMARY
+          echo "Cache hit: $CACHE_HIT" >> $GITHUB_STEP_SUMMARY
+          if [ "$CACHE_HIT" = "true" ]; then
+            echo "::notice::Rust cache restored"
+          else
+            echo "::notice::Rust cache miss—dependencies will be rebuilt"
+          fi
+
+      # ---------------------------------------------
+      # 4. Setup Node.js
+      # ---------------------------------------------
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # ---------------------------------------------
+      # 4.1. Add summary for Node.js
+      # ---------------------------------------------
+      - name: Add Node.js summary
+        run: |
+          echo "## Node.js Setup" >> $GITHUB_STEP_SUMMARY
+          echo "Node.js version: $(node --version)" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Node.js environment configured"
+
+      # ---------------------------------------------
+      # 5. Setup Bun
+      # ---------------------------------------------
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # ---------------------------------------------
+      # 5.1. Add summary for Bun
+      # ---------------------------------------------
+      - name: Add Bun summary
+        run: |
+          echo "## Bun Setup" >> $GITHUB_STEP_SUMMARY
+          echo "Bun version: $(bun --version)" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Bun runtime configured"
+
+      # ---------------------------------------------
+      # 6. Cache Bun dependencies
+      # ---------------------------------------------
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        id: bun-cache
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-semantic-release-cargo
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      # ---------------------------------------------
+      # 6.1. Add summary for Bun cache
+      # ---------------------------------------------
+      - name: Add Bun cache summary
+        run: |
+          echo "## Bun Cache" >> $GITHUB_STEP_SUMMARY
+          echo "Cache hit: ${{ steps.bun-cache.outputs.cache-hit }}" >> $GITHUB_STEP_SUMMARY
+
+      # ---------------------------------------------
+      # 7. Install Release Tooling
+      # ---------------------------------------------
+      - name: Install Release Dependencies
+        run: |
+          bun add -g \
+            semantic-release \
+            semantic-release-cargo \
+            @semantic-release/changelog \
+            @semantic-release/git \
+            @semantic-release/github
+
+      # ---------------------------------------------
+      # 7.1. Add summary for Release Tooling
+      # ---------------------------------------------
+      - name: Add tooling summary
+        run: |
+          echo "## Release Tooling" >> $GITHUB_STEP_SUMMARY
+          echo "semantic-release and cargo plugins installed" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Release engine ready"
+
+      # ---------------------------------------------
+      # 8. Configure git for github-actions[bot]
+      # ---------------------------------------------
+      - name: Configure git for github-actions[bot]
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      # ---------------------------------------------
+      # 8.1. Add summary for git identity
+      # ---------------------------------------------
+      - name: Add git identity summary
+        run: |
+          echo "## Git Identity" >> $GITHUB_STEP_SUMMARY
+          echo "Author: $(git config --global user.name)" >> $GITHUB_STEP_SUMMARY
+          echo "Email: $(git config --global user.email)" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Release commits configured for bot identity"
+
+      # ---------------------------------------------
+      # 9. Run semantic-release
+      # ---------------------------------------------
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: dummy
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
+        run: bunx semantic-release
+
+      # ---------------------------------------------
+      # 9.1. Add summary for release completion
+      # ---------------------------------------------
+      - name: Add release summary
+        run: |
+          echo "## Release Results" >> $GITHUB_STEP_SUMMARY
+          echo "Release workflow execution complete" >> $GITHUB_STEP_SUMMARY
+          echo "Publishing to crates.io: disabled" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Release process complete"

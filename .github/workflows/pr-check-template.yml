@@ -1,0 +1,109 @@
+name: PR check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+    branches: [developer, staging, main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  template-check:
+    name: template 
+    runs-on: ubuntu-latest
+    steps:
+      # ---------------------------------------------
+      # 1. Check PR body exists
+      # ---------------------------------------------
+      - name: Verify PR body exists
+        id: pr_body
+        run: |
+          body=$(jq -r '.pull_request.body // empty' "$GITHUB_EVENT_PATH")
+          if [[ -z "$body" ]]; then
+            echo "PR_BODY_STATUS= PR body is empty" >> $GITHUB_ENV
+            echo "::error::PR body is empty"
+          else
+            echo "PR_BODY_STATUS= PR body is present" >> $GITHUB_ENV
+          fi
+
+      # ---------------------------------------------
+      # 2. Verify at least one type of change
+      # ---------------------------------------------
+      - name: Verify types of changes
+        id: types
+        run: |
+          body=$(jq -r '.pull_request.body // empty' "$GITHUB_EVENT_PATH")
+          types_section=$(echo "$body" | awk '/## Types of changes/{flag=1;next} /## /{flag=0} flag')
+          types_checked=$(echo "$types_section" | grep -c '^\s*-\s*\[x\]' || echo 0)
+
+          if [[ $types_checked -lt 1 ]]; then
+            echo "TYPES_STATUS= No type of change selected" >> $GITHUB_ENV
+            echo "::error::At least one type of change must be selected"
+          else
+            checked_items=$(echo "$types_section" | grep '^\s*-\s*\[x\]' | sed 's/^/   - /')
+            echo "TYPES_STATUS= $types_checked type(s) selected" >> $GITHUB_ENV
+            echo "TYPES_CHECKED_ITEMS<<EOF" >> $GITHUB_ENV
+            echo "$checked_items" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          fi
+
+      # ---------------------------------------------
+      # 3. Verify checklist completion
+      # ---------------------------------------------
+      - name: Verify checklist completion
+        id: checklist
+        run: |
+          body=$(jq -r '.pull_request.body // empty' "$GITHUB_EVENT_PATH")
+          checklist=$(echo "$body" | awk '/## Checklist/{flag=1;next} /## /{flag=0} flag')
+          total=$(echo "$checklist" | grep -c '^\s*-\s*\[.\]' || echo 0)
+          checked=$(echo "$checklist" | grep -c '^\s*-\s*\[x\]' || echo 0)
+
+          if [[ $total -gt 0 && $checked -ne $total ]]; then
+            pending_items=$(echo "$checklist" | grep -v '^\s*-\s*\[x\]' | sed 's/^/   - /')
+            echo "CHECKLIST_STATUS= $checked/$total items checked" >> $GITHUB_ENV
+            echo "CHECKLIST_PENDING<<EOF" >> $GITHUB_ENV
+            echo "$pending_items" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+            echo "::error::Checklist incomplete"
+          else
+            echo "CHECKLIST_STATUS= $checked/$total items checked" >> $GITHUB_ENV
+          fi
+
+      # ---------------------------------------------
+      # 4. Final summary (clean, beautiful Markdown)
+      # ---------------------------------------------
+      - name: Template summary
+        run: |
+          echo "## PR Template Validation Summary" >> $GITHUB_STEP_SUMMARY
+          
+          # PR Body
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### PR Body" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ env.PR_BODY_STATUS }}" == *"present"* ]]; then
+            echo "✓ Present" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Missing" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Types of Changes
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔧 Types of Changes" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ env.TYPES_STATUS }}" == *"No type"* ]]; then
+            echo "None selected" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✓ ${{ env.TYPES_STATUS }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Checklist
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ☑️ Checklist" >> $GITHUB_STEP_SUMMARY
+          echo "✓ ${{ env.CHECKLIST_STATUS }}" >> $GITHUB_STEP_SUMMARY
+
+          if [ -n "${{ env.CHECKLIST_PENDING }}" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "#### Pending Items" >> $GITHUB_STEP_SUMMARY
+            echo "${{ env.CHECKLIST_PENDING }}" >> $GITHUB_STEP_SUMMARY
+          fi
+

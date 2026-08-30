@@ -1,0 +1,84 @@
+name: PR checks
+
+on:
+  pull_request:
+    types: [opened, edited]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ---------------------------------------------
+  # 1. PR Semantic title
+  # ---------------------------------------------
+  title:
+    name: title format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------
+  # 2. PR Auto labeler
+  # ---------------------------------------------
+  label:
+    name: Auto label
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          configuration-path: .github/labeler.yml
+
+  # ---------------------------------------------
+  # 3. PR check branch name
+  # ---------------------------------------------
+  branch-name:
+    name: Branch name convention
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate branch name
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          echo "[log] Head branch: $BRANCH"
+          if [[ ! "$BRANCH" =~ ^(feat|fix|refactor|chore|docs)/.+$ ]]; then
+            echo "::error::Invalid Head branch name."
+            echo "Allowed patterns:"
+            echo "  - feat/anything"
+            echo "  - fix/anything"
+            echo "  - refactor/anything"
+            echo "  - chore/anything"
+            echo "  - docs/anything"
+            echo "  - main (for rare cases)"
+            exit 1
+          fi
+          echo "::notice::Head branch name valid: $BRANCH"
+
+  # ---------------------------------------------
+  # 4. PR check flow (target ← source)
+  # ---------------------------------------------
+  pr-flow:
+    name: flow validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate upstream flow
+        run: |
+          BASE="${{ github.base_ref }}"
+          HEAD="${{ github.head_ref }}" 
+          echo "[log] PR flow: $BASE ← $HEAD"
+
+          if [[ "$BASE" != "main" ]]; then
+            echo "::error::PRs must target 'main' only"
+            exit 1
+          fi
+
+          if [[ ! "$HEAD" =~ ^(feat|fix|refactor|chore|docs)/.+$ ]]; then
+            echo "::error::PRs to main must come from:"
+            echo "  feat/*, fix/*, refactor/*, chore/*, docs/*"
+            echo "(no direct main → main allowed)"
+            exit 1
+          fi
+          echo "::notice::PR flow valid: $BASE ← $HEAD"

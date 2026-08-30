@@ -1,0 +1,15 @@
+name: Test
+
+on:
+  push:
+    branches: ['feat/*', 'feat/**', 'fix/*', 'fix/**', 'chore/*', 'chore/**', 'refactor/*', 'refactor/**', 'docs/*', 'docs/**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    uses: dheerajy1/.github/.github/workflows/test-rust.yml@main

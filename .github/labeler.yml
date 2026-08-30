@@ -1,0 +1,20 @@
+feat:
+  - head-branch: '^feat/.*'
+
+fix:
+  - head-branch: '^fix/.*'
+
+refactor:
+  - head-branch: '^refactor/.*'
+
+docs:
+  - head-branch: '^docs/.*'
+
+chore:
+  - head-branch: '^chore/.*'
+
+release:
+  - base-branch: 'main'
+
+test:
+  - head-branch: '^test/.*'
