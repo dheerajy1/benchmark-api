@@ -1,11 +1,18 @@
 use axum::Router;
-use benchmark_api::features::v1;
+use benchmark_api::{config::env::Env, features::v1};
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new().merge(v1::router());
+    dotenvy::dotenv().ok();
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:5000")
+    let env = Env::load().unwrap_or_else(|error| {
+        eprintln!("[env] Environment validation failed: {error}");
+        std::process::exit(1);
+    });
+
+    let app = Router::new().merge(v1::router()).with_state(env.clone());
+
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", env.app_port))
         .await
         .unwrap();
 

@@ -2,18 +2,22 @@ use std::path::{Path, PathBuf};
 
 use uuid::Uuid;
 
+use crate::config::env::Env;
+
 use super::{
     discovery,
-    metrics::artifact_size,
+    metrics::{artifact_size, build_time, startup_time},
     model::{BenchmarkRequest, BenchmarkResult, Metrics, Target},
 };
 
-pub fn run(request: &BenchmarkRequest) -> Result<BenchmarkResult, String> {
+pub fn run(request: &BenchmarkRequest, env: &Env) -> Result<BenchmarkResult, String> {
     let target = prepare_target(&request.path)?;
     let run_id = Uuid::now_v7();
 
     let discovery = discovery::discover(&target)?;
     let artifact_size = artifact_size::measure(&target)?;
+    let build_time = build_time::measure(&target, discovery.runtime.as_deref())?;
+    let startup_time = startup_time::measure(&target, discovery.runtime.as_deref(), env)?;
 
     Ok(BenchmarkResult {
         run_id,
@@ -21,7 +25,11 @@ pub fn run(request: &BenchmarkRequest) -> Result<BenchmarkResult, String> {
             path: target.display().to_string(),
         },
         discovery,
-        metrics: Metrics { artifact_size },
+        metrics: Metrics {
+            artifact_size,
+            build_time,
+            startup_time,
+        },
     })
 }
 

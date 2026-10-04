@@ -1,6 +1,6 @@
 use benchmark_api::features::v1::benchmark::model::{
-    ArtifactSize, ArtifactSizeCategory, BenchmarkRequest, BenchmarkResult, Discovery, Metrics,
-    Target,
+    ArtifactSize, ArtifactSizeCategory, BenchmarkRequest, BenchmarkResult, BuildCommand, BuildTime,
+    Discovery, Metrics, StartupReadiness, StartupTime, Target,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -45,6 +45,38 @@ fn serializes_benchmark_result() {
                     file_count: 3,
                 },
             },
+            build_time: BuildTime {
+                status: "success".to_string(),
+                duration_ms: Some(1842),
+                command: Some(BuildCommand {
+                    program: "bun".to_string(),
+                    args: vec!["run".to_string(), "build".to_string()],
+                }),
+                working_directory: Some("/absolute/path/to/project".to_string()),
+                started_at: Some("2026-10-04T12:00:00.000Z".to_string()),
+                finished_at: Some("2026-10-04T12:00:01.842Z".to_string()),
+                exit_code: Some(0),
+            },
+            startup_time: StartupTime {
+                status: "success".to_string(),
+                duration_ms: Some(1842),
+                command: Some(BuildCommand {
+                    program: "bun".to_string(),
+                    args: vec!["run".to_string(), "start".to_string()],
+                }),
+                working_directory: Some("/absolute/path/to/project".to_string()),
+                readiness: Some(StartupReadiness {
+                    readiness_type: "http".to_string(),
+                    host: "127.0.0.1".to_string(),
+                    port: 5001,
+                    path: "/api/v1/health/app".to_string(),
+                    method: "GET".to_string(),
+                    expected_status: 200,
+                }),
+                started_at: Some("2026-10-04T12:00:00.000Z".to_string()),
+                ready_at: Some("2026-10-04T12:00:01.842Z".to_string()),
+                exit_code: None,
+            },
         },
     };
 
@@ -78,6 +110,38 @@ fn serializes_benchmark_result() {
                         "size": "300 B",
                         "file_count": 3
                     }
+                },
+                "build_time": {
+                    "status": "success",
+                    "duration_ms": 1842,
+                    "command": {
+                        "program": "bun",
+                        "args": ["run", "build"]
+                    },
+                    "working_directory": "/absolute/path/to/project",
+                    "started_at": "2026-10-04T12:00:00.000Z",
+                    "finished_at": "2026-10-04T12:00:01.842Z",
+                    "exit_code": 0
+                },
+                "startup_time": {
+                    "status": "success",
+                    "duration_ms": 1842,
+                    "command": {
+                        "program": "bun",
+                        "args": ["run", "start"]
+                    },
+                    "working_directory": "/absolute/path/to/project",
+                    "readiness": {
+                        "type": "http",
+                        "host": "127.0.0.1",
+                        "port": 5001,
+                        "path": "/api/v1/health/app",
+                        "method": "GET",
+                        "expected_status": 200
+                    },
+                    "started_at": "2026-10-04T12:00:00.000Z",
+                    "ready_at": "2026-10-04T12:00:01.842Z",
+                    "exit_code": null
                 }
             }
         })

@@ -1,8 +1,17 @@
 use std::fs::{self, File};
 
+use benchmark_api::config::env::Env;
 use benchmark_api::features::v1::benchmark::{model::BenchmarkRequest, service};
 use tempfile::TempDir;
 use uuid::Uuid;
+
+fn test_env() -> Env {
+    Env {
+        app_port: 5001,
+        app_health_client_id: "test-client-id".to_string(),
+        app_health_client_secret: "test-client-secret".to_string(),
+    }
+}
 
 #[test]
 fn runs_benchmark_and_assembles_result() {
@@ -31,7 +40,7 @@ fn runs_benchmark_and_assembles_result() {
         path: temp_dir.path().to_path_buf(),
     };
 
-    let result = service::run(&request).unwrap();
+    let result = service::run(&request, &test_env()).unwrap();
 
     assert_eq!(result.run_id.get_version_num(), 7);
     assert_eq!(result.target.path, temp_dir.path().display().to_string());
