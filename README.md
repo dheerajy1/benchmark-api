@@ -25,3 +25,33 @@ cargo fmt && cargo check && cargo test
 cargo clean && cargo fmt && cargo check
 
 cargo run
+
+---
+
+# Lifecycle
+
+prepare target
+    ↓
+discover
+    ↓
+build
+    ↓
+start application
+    ↓
+wait until ready
+    ↓
+┌─────────────────────────────┐
+│ application stays alive     │
+│                             │
+│ memory baseline             │
+│ HTTP latency                │
+│ throughput                  │
+│ CPU                         │
+│ memory under load           │
+└─────────────────────────────┘
+    ↓
+graceful shutdown
+    ↓
+assemble BenchmarkResult
+
+---

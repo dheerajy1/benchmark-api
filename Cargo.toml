@@ -11,6 +11,8 @@ serde_json = "1.0.151"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net"] }
 walkdir = "2.5.0"
 uuid = { version = "1", features = ["v7", "serde"] }
+envy = "0.4.2"
+validator = { version = "0.21.0", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
