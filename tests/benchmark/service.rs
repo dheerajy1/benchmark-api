@@ -48,6 +48,8 @@ fn runs_benchmark_and_assembles_result() {
     assert!(result.discovery.runtime.is_none());
     assert!(result.discovery.build.is_none());
 
+    assert!(result.metrics.memory.is_none());
+
     assert_eq!(result.metrics.artifact_size.source.bytes, 100);
     assert_eq!(result.metrics.artifact_size.source.size, "100 B");
     assert_eq!(result.metrics.artifact_size.source.file_count, 1);

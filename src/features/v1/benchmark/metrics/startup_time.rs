@@ -1,63 +1,68 @@
 use std::{
     fs,
-    path::Path,
-    process::Command,
-    thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use serde_json::Value;
 
-use crate::features::v1::benchmark::model::{BuildCommand, StartupReadiness, StartupTime};
+use crate::config::env::Env;
+use crate::features::v1::benchmark::{
+    model::{BuildCommand, StartupReadiness, StartupTime},
+    target_process::{
+        EXPECTED_STATUS, READINESS_HOST, READINESS_METHOD, READINESS_PATH, ReadyOutcome,
+        TargetProcess,
+    },
+};
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-const POLL_INTERVAL: Duration = Duration::from_millis(50);
-const READINESS_PATH: &str = "/api/v1/health/app";
-const READINESS_HOST: &str = "127.0.0.1";
-const READINESS_METHOD: &str = "GET";
-const EXPECTED_STATUS: u16 = 200;
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
-struct StartupTimeConfig {
-    timeout: Duration,
+// Everything needed to launch the target and describe its startup
+pub struct StartupPlan {
+    pub command: BuildCommand,
+    pub port: u16,
+    pub working_directory: PathBuf,
 }
 
-impl Default for StartupTimeConfig {
-    fn default() -> Self {
-        Self {
-            timeout: DEFAULT_TIMEOUT,
-        }
-    }
+pub enum StartupPreparation {
+    // Startup cannot be measured, the result is already final
+    Skipped(StartupTime),
+    // Target can be launched using this plan
+    Launch(StartupPlan),
 }
 
-pub fn measure(
-    target: &Path,
-    runtime: Option<&str>,
-    env: &crate::config::env::Env,
-) -> Result<StartupTime, String> {
-    measure_with_config(target, runtime, env, &StartupTimeConfig::default())
+pub fn measure(target: &Path, runtime: Option<&str>, env: &Env) -> Result<StartupTime, String> {
+    measure_with_timeout(target, runtime, env, DEFAULT_TIMEOUT)
 }
 
+// Convenience wrapper that owns the full lifecycle: start, observe, shutdown
 pub fn measure_with_timeout(
     target: &Path,
     runtime: Option<&str>,
-    env: &crate::config::env::Env,
+    env: &Env,
     timeout: Duration,
 ) -> Result<StartupTime, String> {
-    measure_with_config(target, runtime, env, &StartupTimeConfig { timeout })
+    let plan = match prepare(target, runtime)? {
+        StartupPreparation::Skipped(result) => return Ok(result),
+        StartupPreparation::Launch(plan) => plan,
+    };
+
+    let mut process = TargetProcess::start(&plan.command, &plan.working_directory)?;
+
+    let result = observe(plan, &mut process, env, timeout);
+
+    process.shutdown();
+
+    result
 }
 
-fn measure_with_config(
-    target: &Path,
-    runtime: Option<&str>,
-    env: &crate::config::env::Env,
-    config: &StartupTimeConfig,
-) -> Result<StartupTime, String> {
+pub fn prepare(target: &Path, runtime: Option<&str>) -> Result<StartupPreparation, String> {
     let Some(command) = discover_start_command(target, runtime)? else {
-        return Ok(no_start_command());
+        return Ok(StartupPreparation::Skipped(no_start_command()));
     };
 
     let Some(port) = discover_port(target, &command)? else {
-        return Ok(StartupTime {
+        return Ok(StartupPreparation::Skipped(StartupTime {
             status: "no_port".to_string(),
             duration_ms: None,
             command: Some(command),
@@ -66,111 +71,60 @@ fn measure_with_config(
             started_at: None,
             ready_at: None,
             exit_code: None,
-        });
+        }));
     };
 
     let working_directory = target
         .canonicalize()
         .map_err(|error| format!("Failed to resolve working directory: {error}"))?;
 
+    Ok(StartupPreparation::Launch(StartupPlan {
+        command,
+        port,
+        working_directory,
+    }))
+}
+
+// Observes the startup of a running target, never shuts the process down
+pub fn observe(
+    plan: StartupPlan,
+    process: &mut TargetProcess,
+    env: &Env,
+    timeout: Duration,
+) -> Result<StartupTime, String> {
+    let outcome = process.wait_until_ready(plan.port, env, timeout)?;
+
+    let duration_ms = process.startup_elapsed().as_millis() as u64;
+    let started_at = format_timestamp(process.started_at());
+
     let readiness = StartupReadiness {
         readiness_type: "http".to_string(),
         host: READINESS_HOST.to_string(),
-        port,
+        port: plan.port,
         path: READINESS_PATH.to_string(),
         method: READINESS_METHOD.to_string(),
         expected_status: EXPECTED_STATUS,
     };
 
-    let started_at = format_timestamp(SystemTime::now());
-    let started = Instant::now();
+    let working_directory = plan.working_directory.display().to_string();
 
-    let mut child = spawn_start_process(&command, &working_directory)?;
+    let (status, ready_at, exit_code) = match outcome {
+        ReadyOutcome::Ready => ("success", Some(format_timestamp(SystemTime::now())), None),
+        ReadyOutcome::Rejected => ("unhealthy", None, None),
+        ReadyOutcome::Exited(code) => ("failed", None, code),
+        ReadyOutcome::TimedOut => ("timeout", None, None),
+    };
 
-    loop {
-        match http_ready(READINESS_HOST, port, env) {
-            ReadinessCheck::Ready => {
-                let ready_at = format_timestamp(SystemTime::now());
-                let duration_ms = started.elapsed().as_millis() as u64;
-
-                terminate_process_tree(&mut child);
-                let _ = child.wait();
-
-                return Ok(StartupTime {
-                    status: "success".to_string(),
-                    duration_ms: Some(duration_ms),
-                    command: Some(command),
-                    working_directory: Some(working_directory.display().to_string()),
-                    readiness: Some(readiness),
-                    started_at: Some(started_at),
-                    ready_at: Some(ready_at),
-                    exit_code: None,
-                });
-            }
-            ReadinessCheck::Rejected => {
-                let duration_ms = started.elapsed().as_millis() as u64;
-
-                terminate_process_tree(&mut child);
-                let _ = child.wait();
-
-                return Ok(StartupTime {
-                    status: "unhealthy".to_string(),
-                    duration_ms: Some(duration_ms),
-                    command: Some(command),
-                    working_directory: Some(working_directory.display().to_string()),
-                    readiness: Some(readiness),
-                    started_at: Some(started_at),
-                    ready_at: None,
-                    exit_code: None,
-                });
-            }
-            ReadinessCheck::NotReady => {}
-        }
-
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let duration_ms = started.elapsed().as_millis() as u64;
-
-                return Ok(StartupTime {
-                    status: "failed".to_string(),
-                    duration_ms: Some(duration_ms),
-                    command: Some(command),
-                    working_directory: Some(working_directory.display().to_string()),
-                    readiness: Some(readiness),
-                    started_at: Some(started_at),
-                    ready_at: None,
-                    exit_code: status.code(),
-                });
-            }
-            Ok(None) => {}
-            Err(error) => {
-                terminate_process_tree(&mut child);
-                let _ = child.wait();
-
-                return Err(format!("Failed to inspect startup process: {error}"));
-            }
-        }
-
-        if started.elapsed() >= config.timeout {
-            terminate_process_tree(&mut child);
-            let _ = child.wait();
-
-            let duration_ms = started.elapsed().as_millis() as u64;
-
-            return Ok(StartupTime {
-                status: "timeout".to_string(),
-                duration_ms: Some(duration_ms),
-                command: Some(command),
-                working_directory: Some(working_directory.display().to_string()),
-                readiness: Some(readiness),
-                started_at: Some(started_at),
-                ready_at: None,
-                exit_code: None,
-            });
-        }
-
-        thread::sleep(POLL_INTERVAL);
-    }
+    Ok(StartupTime {
+        status: status.to_string(),
+        duration_ms: Some(duration_ms),
+        command: Some(plan.command),
+        working_directory: Some(working_directory),
+        readiness: Some(readiness),
+        started_at: Some(started_at),
+        ready_at,
+        exit_code,
+    })
 }
 
 fn no_start_command() -> StartupTime {
@@ -270,7 +224,7 @@ fn discover_port(target: &Path, command: &BuildCommand) -> Result<Option<u16>, S
     Ok(None)
 }
 
-fn discover_env_file(target: &Path, command: &BuildCommand) -> Option<std::path::PathBuf> {
+fn discover_env_file(target: &Path, command: &BuildCommand) -> Option<PathBuf> {
     if command.program == "bun" || command.program == "npm" {
         let package_json_path = target.join("package.json");
 
@@ -309,157 +263,6 @@ fn discover_env_file(target: &Path, command: &BuildCommand) -> Option<std::path:
     }
 
     None
-}
-
-// Only these variables are passed from benchmark-api to the target app
-const PASSTHROUGH_ENV: [&str; 8] = [
-    "PATH",
-    "HOME",
-    "USER",
-    "LANG",
-    "TMPDIR",
-    "SystemRoot",
-    "USERPROFILE",
-    "TEMP",
-];
-
-fn apply_clean_env(process: &mut Command) {
-    // Drop everything inherited from benchmark-api
-    process.env_clear();
-
-    for key in PASSTHROUGH_ENV {
-        // Copy the variable only if it is set in the parent
-        if let Some(value) = std::env::var_os(key) {
-            process.env(key, value);
-        }
-    }
-}
-
-fn spawn_start_process(
-    command: &BuildCommand,
-    working_directory: &Path,
-) -> Result<std::process::Child, String> {
-    #[cfg(unix)]
-    {
-        let mut process = Command::new("setsid");
-
-        process
-            .arg(&command.program)
-            .args(&command.args)
-            .current_dir(working_directory);
-
-        apply_clean_env(&mut process);
-
-        process
-            .spawn()
-            .map_err(|error| format!("Failed to spawn startup command: {error}"))
-    }
-
-    #[cfg(not(unix))]
-    {
-        let mut process = Command::new(&command.program);
-
-        process.args(&command.args).current_dir(working_directory);
-
-        apply_clean_env(&mut process);
-
-        process
-            .spawn()
-            .map_err(|error| format!("Failed to spawn startup command: {error}"))
-    }
-}
-
-enum ReadinessCheck {
-    // Server answered with the expected status
-    Ready,
-    // Server answered with any other status
-    Rejected,
-    // No usable answer yet, keep polling
-    NotReady,
-}
-
-fn http_ready(host: &str, port: u16, env: &crate::config::env::Env) -> ReadinessCheck {
-    use std::{
-        io::{Read, Write},
-        net::TcpStream,
-    };
-
-    let Ok(mut stream) = TcpStream::connect_timeout(
-        &format!("{host}:{port}").parse().unwrap(),
-        Duration::from_millis(100),
-    ) else {
-        return ReadinessCheck::NotReady;
-    };
-
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(100)));
-    let _ = stream.set_write_timeout(Some(Duration::from_millis(100)));
-
-    let request = format!(
-        "GET {READINESS_PATH} HTTP/1.1\r\n\
-         Host: {host}:{port}\r\n\
-         X-Client-Id: {}\r\n\
-         X-Client-Secret: {}\r\n\
-         Connection: close\r\n\r\n",
-        env.app_health_client_id, env.app_health_client_secret
-    );
-
-    if stream.write_all(request.as_bytes()).is_err() {
-        return ReadinessCheck::NotReady;
-    }
-
-    let mut response = [0u8; 1024];
-
-    let Ok(bytes_read) = stream.read(&mut response) else {
-        return ReadinessCheck::NotReady;
-    };
-
-    let response = String::from_utf8_lossy(&response[..bytes_read]);
-
-    let Some(status_line) = response.lines().next() else {
-        return ReadinessCheck::NotReady;
-    };
-
-    let mut parts = status_line.split_whitespace();
-
-    let Some(version) = parts.next() else {
-        return ReadinessCheck::NotReady;
-    };
-
-    let Some(status) = parts.next() else {
-        return ReadinessCheck::NotReady;
-    };
-
-    if version != "HTTP/1.1" && version != "HTTP/1.0" {
-        return ReadinessCheck::NotReady;
-    }
-
-    match status.parse::<u16>() {
-        Ok(code) if code == EXPECTED_STATUS => ReadinessCheck::Ready,
-        Ok(_) => ReadinessCheck::Rejected,
-        Err(_) => ReadinessCheck::NotReady,
-    }
-}
-
-fn terminate_process_tree(child: &mut std::process::Child) {
-    #[cfg(unix)]
-    {
-        let pid = child.id().to_string();
-
-        let _ = Command::new("kill")
-            .args(["-TERM", "--", &format!("-{pid}")])
-            .status();
-
-        thread::sleep(Duration::from_millis(100));
-
-        let _ = Command::new("kill")
-            .args(["-KILL", "--", &format!("-{pid}")])
-            .status();
-    }
-
-    #[cfg(not(unix))]
-    {
-        let _ = child.kill();
-    }
 }
 
 fn format_timestamp(time: SystemTime) -> String {

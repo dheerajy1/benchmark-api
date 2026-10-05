@@ -1,6 +1,6 @@
 use benchmark_api::features::v1::benchmark::model::{
     ArtifactSize, ArtifactSizeCategory, BenchmarkRequest, BenchmarkResult, BuildCommand, BuildTime,
-    Discovery, Metrics, StartupReadiness, StartupTime, Target,
+    Discovery, Memory, MemoryReading, Metrics, StartupReadiness, StartupTime, Target,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -77,6 +77,20 @@ fn serializes_benchmark_result() {
                 ready_at: Some("2026-10-04T12:00:01.842Z".to_string()),
                 exit_code: None,
             },
+            memory: Some(Memory {
+                baseline: MemoryReading {
+                    rss_bytes: 52428800,
+                    rss_size: "50.00 MiB".to_string(),
+                },
+                peak: MemoryReading {
+                    rss_bytes: 73400320,
+                    rss_size: "70.00 MiB".to_string(),
+                },
+                delta: MemoryReading {
+                    rss_bytes: 20971520,
+                    rss_size: "20.00 MiB".to_string(),
+                },
+            }),
         },
     };
 
@@ -142,6 +156,20 @@ fn serializes_benchmark_result() {
                     "started_at": "2026-10-04T12:00:00.000Z",
                     "ready_at": "2026-10-04T12:00:01.842Z",
                     "exit_code": null
+                },
+                "memory": {
+                    "baseline": {
+                        "rss_bytes": 52428800,
+                        "rss_size": "50.00 MiB"
+                    },
+                    "peak": {
+                        "rss_bytes": 73400320,
+                        "rss_size": "70.00 MiB"
+                    },
+                    "delta": {
+                        "rss_bytes": 20971520,
+                        "rss_size": "20.00 MiB"
+                    }
                 }
             }
         })

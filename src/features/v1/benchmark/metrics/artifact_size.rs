@@ -67,7 +67,7 @@ pub fn measure(path: &Path) -> Result<ArtifactSize, String> {
     })
 }
 
-fn format_size(bytes: u64) -> String {
+pub fn format_size(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = KIB * 1024.0;
     const GIB: f64 = MIB * 1024.0;

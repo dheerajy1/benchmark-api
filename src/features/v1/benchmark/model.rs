@@ -31,6 +31,7 @@ pub struct Metrics {
     pub artifact_size: ArtifactSize,
     pub build_time: BuildTime,
     pub startup_time: StartupTime,
+    pub memory: Option<Memory>,
 }
 
 #[derive(Serialize)]
@@ -85,4 +86,17 @@ pub struct StartupReadiness {
 pub struct BuildCommand {
     pub program: String,
     pub args: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct Memory {
+    pub baseline: MemoryReading,
+    pub peak: MemoryReading,
+    pub delta: MemoryReading,
+}
+
+#[derive(Serialize)]
+pub struct MemoryReading {
+    pub rss_bytes: u64,
+    pub rss_size: String,
 }
