@@ -9,10 +9,9 @@ use serde_json::Value;
 use crate::config::env::Env;
 use crate::features::v1::benchmark::{
     model::{BuildCommand, StartupReadiness, StartupTime},
-    target_process::{
-        EXPECTED_STATUS, READINESS_HOST, READINESS_METHOD, READINESS_PATH, ReadyOutcome,
-        TargetProcess,
-    },
+    readiness::ReadinessSettings,
+    request::StartupRequest,
+    target_process::{READINESS_METHOD, ReadyOutcome, TargetProcess},
 };
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -20,7 +19,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 // Everything needed to launch the target and describe its startup
 pub struct StartupPlan {
     pub command: BuildCommand,
-    pub port: u16,
+    pub readiness: ReadinessSettings,
     pub working_directory: PathBuf,
 }
 
@@ -57,6 +56,23 @@ pub fn measure_with_timeout(
 }
 
 pub fn prepare(target: &Path, runtime: Option<&str>) -> Result<StartupPreparation, String> {
+    prepare_with_startup(target, runtime, None)
+}
+
+// Explicit startup configuration wins, otherwise command and port are discovered
+pub fn prepare_with_startup(
+    target: &Path,
+    runtime: Option<&str>,
+    startup: Option<&StartupRequest>,
+) -> Result<StartupPreparation, String> {
+    if let Some(startup) = startup {
+        return Ok(StartupPreparation::Launch(StartupPlan {
+            command: startup.command.clone(),
+            readiness: ReadinessSettings::from_request(&startup.readiness),
+            working_directory: resolve_working_directory(target)?,
+        }));
+    }
+
     let Some(command) = discover_start_command(target, runtime)? else {
         return Ok(StartupPreparation::Skipped(no_start_command()));
     };
@@ -74,15 +90,17 @@ pub fn prepare(target: &Path, runtime: Option<&str>) -> Result<StartupPreparatio
         }));
     };
 
-    let working_directory = target
-        .canonicalize()
-        .map_err(|error| format!("Failed to resolve working directory: {error}"))?;
-
     Ok(StartupPreparation::Launch(StartupPlan {
         command,
-        port,
-        working_directory,
+        readiness: ReadinessSettings::discovered(port),
+        working_directory: resolve_working_directory(target)?,
     }))
+}
+
+fn resolve_working_directory(target: &Path) -> Result<PathBuf, String> {
+    target
+        .canonicalize()
+        .map_err(|error| format!("Failed to resolve working directory: {error}"))
 }
 
 // Observes the startup of a running target, never shuts the process down
@@ -92,18 +110,18 @@ pub fn observe(
     env: &Env,
     timeout: Duration,
 ) -> Result<StartupTime, String> {
-    let outcome = process.wait_until_ready(plan.port, env, timeout)?;
+    let outcome = process.wait_until_ready_with(&plan.readiness, env, timeout)?;
 
     let duration_ms = process.startup_elapsed().as_millis() as u64;
     let started_at = format_timestamp(process.started_at());
 
     let readiness = StartupReadiness {
         readiness_type: "http".to_string(),
-        host: READINESS_HOST.to_string(),
-        port: plan.port,
-        path: READINESS_PATH.to_string(),
+        host: plan.readiness.host.clone(),
+        port: plan.readiness.port,
+        path: plan.readiness.path.clone(),
         method: READINESS_METHOD.to_string(),
-        expected_status: EXPECTED_STATUS,
+        expected_status: plan.readiness.expected_status,
     };
 
     let working_directory = plan.working_directory.display().to_string();

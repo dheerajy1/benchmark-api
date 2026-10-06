@@ -1,5 +1,4 @@
-use axum::Router;
-use benchmark_api::{config::env::Env, features::v1};
+use benchmark_api::{app, config::env::Env};
 
 #[tokio::main]
 async fn main() {
@@ -10,7 +9,7 @@ async fn main() {
         std::process::exit(1);
     });
 
-    let app = Router::new().merge(v1::router()).with_state(env.clone());
+    let app = app::router(env.clone());
 
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", env.app_port))
         .await

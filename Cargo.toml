@@ -13,6 +13,8 @@ walkdir = "2.5.0"
 uuid = { version = "1", features = ["v7", "serde"] }
 envy = "0.4.2"
 validator = { version = "0.21.0", features = ["derive"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
+tower = { version = "0.5", features = ["util"] }

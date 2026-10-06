@@ -1,10 +1,19 @@
 mod benchmark {
+    pub mod api;
     pub mod artifact_size;
     pub mod build_time;
     pub mod discovery;
+    pub mod errors;
+    pub mod http_latency;
     pub mod memory;
     pub mod model;
+    pub mod readiness;
+    pub mod request;
+    pub mod runtime;
     pub mod service;
     pub mod startup_time;
     pub mod target_process;
+    pub mod test_server;
+    pub mod validation;
+    pub mod workload;
 }

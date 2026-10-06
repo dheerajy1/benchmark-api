@@ -1,25 +1,24 @@
 use std::{
-    fs, thread,
-    time::{Duration, Instant},
+    fs,
+    sync::mpsc::{self, Receiver, RecvTimeoutError, Sender},
+    thread::{self, JoinHandle},
+    time::Duration,
 };
 
 use crate::features::v1::benchmark::{
     metrics::artifact_size::format_size,
     model::{Memory, MemoryReading},
-    target_process::TargetProcess,
 };
 
 pub const DEFAULT_STABILIZATION: Duration = Duration::from_millis(500);
 pub const DEFAULT_SAMPLE_INTERVAL: Duration = Duration::from_millis(100);
-pub const DEFAULT_SAMPLE_WINDOW: Duration = Duration::from_secs(5);
 
+#[derive(Debug, Clone)]
 pub struct MemoryConfig {
     // Wait between readiness and the baseline reading
     pub stabilization: Duration,
-    // Time between peak samples
+    // Time between RSS samples while the workload runs
     pub sample_interval: Duration,
-    // Total time spent sampling for the peak after the baseline
-    pub sample_window: Duration,
 }
 
 impl Default for MemoryConfig {
@@ -27,54 +26,125 @@ impl Default for MemoryConfig {
         Self {
             stabilization: DEFAULT_STABILIZATION,
             sample_interval: DEFAULT_SAMPLE_INTERVAL,
-            sample_window: DEFAULT_SAMPLE_WINDOW,
         }
     }
 }
 
-// Measures a running target, never shuts the process down
-pub fn measure(process: &mut TargetProcess) -> Result<Memory, String> {
-    measure_with_config(process, &MemoryConfig::default())
+pub struct MemoryOutcome {
+    pub memory: Memory,
+    // Samples taken after the baseline
+    pub samples: u64,
+    // True when RSS could no longer be read because the target group disappeared
+    pub target_gone: bool,
 }
 
-pub fn measure_with_config(
-    process: &mut TargetProcess,
-    config: &MemoryConfig,
-) -> Result<Memory, String> {
-    let group_id = process.process_group_id();
-
-    measure_with_sampler(config, || {
-        if !process.is_running() {
-            return Err("Target process exited during memory measurement".to_string());
-        }
-
-        read_group_rss(group_id)
-    })
+struct SamplerResult {
+    peak: u64,
+    samples: u64,
+    target_gone: bool,
 }
 
-// Baseline after stabilization, then peak over the sample window
-pub fn measure_with_sampler<F>(config: &MemoryConfig, mut sampler: F) -> Result<Memory, String>
+// Continuous RSS sampling that runs until finish, never touches the target process
+pub struct MemorySession {
+    baseline: u64,
+    stop: Sender<()>,
+    handle: JoinHandle<SamplerResult>,
+}
+
+// Baseline after stabilization, then background sampling for the process group
+pub fn begin_for_group(config: &MemoryConfig, group_id: u32) -> Result<MemorySession, String> {
+    begin(config, move || read_group_rss(group_id))
+}
+
+// Baseline after stabilization, then background sampling through the reader
+pub fn begin<F>(config: &MemoryConfig, mut reader: F) -> Result<MemorySession, String>
 where
-    F: FnMut() -> Result<u64, String>,
+    F: FnMut() -> Result<u64, String> + Send + 'static,
 {
     thread::sleep(config.stabilization);
 
-    let baseline = sampler()?;
-    let mut peak = baseline;
+    let baseline = reader()?;
 
-    let started = Instant::now();
+    let (stop, signal) = mpsc::channel::<()>();
+    let interval = config.sample_interval;
 
-    while started.elapsed() < config.sample_window {
-        thread::sleep(config.sample_interval);
+    let handle = thread::Builder::new()
+        .name("memory-sampler".to_string())
+        .spawn(move || sample_until_stopped(baseline, interval, signal, reader))
+        .map_err(|error| format!("Failed to start memory sampler: {error}"))?;
 
-        let sample = sampler()?;
+    Ok(MemorySession {
+        baseline,
+        stop,
+        handle,
+    })
+}
 
-        if sample > peak {
-            peak = sample;
+impl MemorySession {
+    // Stops sampling and finalizes peak and delta
+    pub fn finish(self) -> Result<MemoryOutcome, String> {
+        // The sampler may already have exited, so a failed send is fine
+        let _ = self.stop.send(());
+
+        let result = self
+            .handle
+            .join()
+            .map_err(|_| "Memory sampler thread panicked".to_string())?;
+
+        Ok(MemoryOutcome {
+            memory: build_memory(self.baseline, result.peak),
+            samples: result.samples,
+            target_gone: result.target_gone,
+        })
+    }
+}
+
+fn sample_until_stopped<F>(
+    baseline: u64,
+    interval: Duration,
+    signal: Receiver<()>,
+    mut reader: F,
+) -> SamplerResult
+where
+    F: FnMut() -> Result<u64, String>,
+{
+    let mut result = SamplerResult {
+        peak: baseline,
+        samples: 0,
+        target_gone: false,
+    };
+
+    loop {
+        match signal.recv_timeout(interval) {
+            Err(RecvTimeoutError::Timeout) => match reader() {
+                Ok(sample) => record(&mut result, sample),
+                Err(_) => {
+                    result.target_gone = true;
+                    break;
+                }
+            },
+            Ok(()) => {
+                // One last reading so the end of the workload is covered
+                match reader() {
+                    Ok(sample) => record(&mut result, sample),
+                    Err(_) => result.target_gone = true,
+                }
+
+                break;
+            }
+            Err(RecvTimeoutError::Disconnected) => break,
         }
     }
 
-    Ok(build_memory(baseline, peak))
+    result
+}
+
+fn record(result: &mut SamplerResult, sample: u64) {
+    result.samples += 1;
+
+    if sample > result.peak {
+        result.peak = sample;
+    }
 }
 
 pub fn build_memory(baseline_bytes: u64, peak_bytes: u64) -> Memory {

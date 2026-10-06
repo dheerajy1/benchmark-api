@@ -28,7 +28,6 @@ fn fast_config() -> MemoryConfig {
     MemoryConfig {
         stabilization: Duration::from_millis(100),
         sample_interval: Duration::from_millis(50),
-        sample_window: Duration::from_millis(300),
     }
 }
 
@@ -89,7 +88,11 @@ fn target_stays_alive_through_memory_measurement() {
 
     let mut process = start_ready(&temp_dir.path().canonicalize().unwrap(), port);
 
-    let result = memory::measure_with_config(&mut process, &fast_config()).unwrap();
+    let session = memory::begin_for_group(&fast_config(), process.process_group_id()).unwrap();
+
+    thread::sleep(Duration::from_millis(300));
+
+    let result = session.finish().unwrap().memory;
 
     assert!(result.baseline.rss_bytes > 0);
     assert!(result.peak.rss_bytes >= result.baseline.rss_bytes);
@@ -155,17 +158,20 @@ fn shutdown_can_be_called_twice() {
 }
 
 #[test]
-fn memory_measurement_fails_when_target_is_gone() {
+fn memory_baseline_fails_when_target_is_gone() {
     let temp_dir = TempDir::new().unwrap();
     let port = free_port();
 
     write_server_project(&temp_dir, port);
 
     let mut process = start_ready(&temp_dir.path().canonicalize().unwrap(), port);
+    let group_id = process.process_group_id();
 
     process.shutdown();
 
-    let result = memory::measure_with_config(&mut process, &fast_config());
+    thread::sleep(Duration::from_millis(200));
+
+    let result = memory::begin_for_group(&fast_config(), group_id);
 
     assert!(result.is_err());
 }

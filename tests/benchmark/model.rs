@@ -1,6 +1,6 @@
 use benchmark_api::features::v1::benchmark::model::{
     ArtifactSize, ArtifactSizeCategory, BenchmarkRequest, BenchmarkResult, BuildCommand, BuildTime,
-    Discovery, Memory, MemoryReading, Metrics, StartupReadiness, StartupTime, Target,
+    Discovery, HttpLatency, Memory, MemoryReading, Metrics, StartupReadiness, StartupTime, Target,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -14,6 +14,8 @@ fn deserializes_benchmark_request() {
         request.path.to_string_lossy(),
         "~/dev/vs-code/recordlog-api"
     );
+    assert!(request.startup.is_none());
+    assert!(request.workload.is_none());
 }
 
 #[test]
@@ -90,6 +92,20 @@ fn serializes_benchmark_result() {
                     rss_bytes: 20971520,
                     rss_size: "20.00 MiB".to_string(),
                 },
+            }),
+            http_latency: Some(HttpLatency {
+                status: "completed".to_string(),
+                total_requests: 1000,
+                successful_requests: 998,
+                failed_requests: 2,
+                duration_ms: 8234,
+                requests_per_second: 121.45,
+                min_ms: Some(1.2),
+                mean_ms: Some(4.8),
+                p50_ms: Some(3.9),
+                p95_ms: Some(8.7),
+                p99_ms: Some(15.2),
+                max_ms: Some(31.4),
             }),
         },
     };
@@ -170,10 +186,73 @@ fn serializes_benchmark_result() {
                         "rss_bytes": 20971520,
                         "rss_size": "20.00 MiB"
                     }
+                },
+                "http_latency": {
+                    "status": "completed",
+                    "total_requests": 1000,
+                    "successful_requests": 998,
+                    "failed_requests": 2,
+                    "duration_ms": 8234,
+                    "requests_per_second": 121.45,
+                    "min_ms": 1.2,
+                    "mean_ms": 4.8,
+                    "p50_ms": 3.9,
+                    "p95_ms": 8.7,
+                    "p99_ms": 15.2,
+                    "max_ms": 31.4
                 }
             }
         })
     );
+}
+
+#[test]
+fn serializes_absent_runtime_metrics_as_null() {
+    let metrics = Metrics {
+        artifact_size: ArtifactSize {
+            source: ArtifactSizeCategory {
+                bytes: 0,
+                size: "0 B".to_string(),
+                file_count: 0,
+            },
+            build: ArtifactSizeCategory {
+                bytes: 0,
+                size: "0 B".to_string(),
+                file_count: 0,
+            },
+            excluded: ArtifactSizeCategory {
+                bytes: 0,
+                size: "0 B".to_string(),
+                file_count: 0,
+            },
+        },
+        build_time: BuildTime {
+            status: "no_build_command".to_string(),
+            duration_ms: None,
+            command: None,
+            working_directory: None,
+            started_at: None,
+            finished_at: None,
+            exit_code: None,
+        },
+        startup_time: StartupTime {
+            status: "no_start_command".to_string(),
+            duration_ms: None,
+            command: None,
+            working_directory: None,
+            readiness: None,
+            started_at: None,
+            ready_at: None,
+            exit_code: None,
+        },
+        memory: None,
+        http_latency: None,
+    };
+
+    let value: Value = serde_json::to_value(metrics).unwrap();
+
+    assert_eq!(value["memory"], Value::Null);
+    assert_eq!(value["http_latency"], Value::Null);
 }
 
 #[test]

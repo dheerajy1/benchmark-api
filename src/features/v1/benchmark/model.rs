@@ -2,9 +2,15 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-#[derive(Deserialize)]
+use super::request::{StartupRequest, WorkloadRequest};
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct BenchmarkRequest {
     pub path: PathBuf,
+    #[serde(default)]
+    pub startup: Option<StartupRequest>,
+    #[serde(default)]
+    pub workload: Option<WorkloadRequest>,
 }
 
 #[derive(Serialize)]
@@ -32,6 +38,7 @@ pub struct Metrics {
     pub build_time: BuildTime,
     pub startup_time: StartupTime,
     pub memory: Option<Memory>,
+    pub http_latency: Option<HttpLatency>,
 }
 
 #[derive(Serialize)]
@@ -82,7 +89,7 @@ pub struct StartupReadiness {
     pub expected_status: u16,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildCommand {
     pub program: String,
     pub args: Vec<String>,
@@ -99,4 +106,21 @@ pub struct Memory {
 pub struct MemoryReading {
     pub rss_bytes: u64,
     pub rss_size: String,
+}
+
+#[derive(Serialize)]
+pub struct HttpLatency {
+    // "completed" or "target_exited"
+    pub status: String,
+    pub total_requests: u64,
+    pub successful_requests: u64,
+    pub failed_requests: u64,
+    pub duration_ms: u64,
+    pub requests_per_second: f64,
+    pub min_ms: Option<f64>,
+    pub mean_ms: Option<f64>,
+    pub p50_ms: Option<f64>,
+    pub p95_ms: Option<f64>,
+    pub p99_ms: Option<f64>,
+    pub max_ms: Option<f64>,
 }

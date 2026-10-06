@@ -29,7 +29,7 @@ cargo run
 ---
 
 # Lifecycle
-
+```
 prepare target
     ↓
 discover
@@ -53,5 +53,27 @@ wait until ready
 graceful shutdown
     ↓
 assemble BenchmarkResult
+```
 
+# Architecture
+
+```
+prepare
+  ↓
+discover
+  ↓
+build
+  ↓
+TargetProcess.start()
+  ↓
+wait_until_ready()
+  ↓
+startup_time
+  ↓
+memory baseline + 5s peak sampling
+  ↓
+[future runtime/load metrics]
+  ↓
+TargetProcess.shutdown()
+```
 ---

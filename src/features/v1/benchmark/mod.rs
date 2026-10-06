@@ -1,6 +1,13 @@
 pub mod discovery;
+pub mod error;
 pub mod handler;
+pub mod host;
 pub mod metrics;
 pub mod model;
+pub mod readiness;
+pub mod request;
+pub mod runtime;
 pub mod service;
 pub mod target_process;
+pub mod validation;
+pub mod workload;
