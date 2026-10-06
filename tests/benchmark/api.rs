@@ -195,3 +195,81 @@ async fn wrong_method_is_a_method_not_allowed_error() {
     assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
     assert_error_shape(&body, 405, "METHOD_NOT_ALLOWED");
 }
+
+#[tokio::test]
+async fn requests_together_with_duration_is_a_validation_error() {
+    let body = json!({
+        "path": "/tmp",
+        "workload": {
+            "method": "GET",
+            "path": "/health",
+            "requests": 10,
+            "duration_seconds": 5,
+            "concurrency": 2
+        }
+    })
+    .to_string();
+
+    let (status, body) = send(post(&body)).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_error_shape(&body, 400, "VALIDATION_ERROR");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("mutually exclusive")
+    );
+}
+
+#[tokio::test]
+async fn duration_above_the_maximum_is_a_validation_error() {
+    let body = json!({
+        "path": "/tmp",
+        "workload": {
+            "method": "GET",
+            "path": "/health",
+            "duration_seconds": 301,
+            "concurrency": 2
+        }
+    })
+    .to_string();
+
+    let (status, body) = send(post(&body)).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_error_shape(&body, 400, "VALIDATION_ERROR");
+}
+
+#[tokio::test]
+async fn zero_duration_is_a_validation_error() {
+    let body = json!({
+        "path": "/tmp",
+        "workload": {
+            "method": "GET",
+            "path": "/health",
+            "duration_seconds": 0,
+            "concurrency": 2
+        }
+    })
+    .to_string();
+
+    let (status, body) = send(post(&body)).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_error_shape(&body, 400, "VALIDATION_ERROR");
+}
+
+#[tokio::test]
+async fn workload_without_requests_or_duration_is_a_validation_error() {
+    let body = json!({
+        "path": "/tmp",
+        "workload": { "method": "GET", "path": "/health", "concurrency": 2 }
+    })
+    .to_string();
+
+    let (status, body) = send(post(&body)).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_error_shape(&body, 400, "VALIDATION_ERROR");
+}

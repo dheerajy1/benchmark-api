@@ -56,6 +56,16 @@ fn workload(requests: u64, concurrency: u64) -> Value {
     })
 }
 
+fn duration_workload(seconds: u64, concurrency: u64) -> Value {
+    json!({
+        "method": "GET",
+        "path": "/",
+        "headers": { "X-Test": "1" },
+        "duration_seconds": seconds,
+        "concurrency": concurrency
+    })
+}
+
 fn request(dir: &Path, script: &str, port: u16, workload: Value) -> BenchmarkRequest {
     serde_json::from_value(json!({
         "path": dir.display().to_string(),
@@ -306,6 +316,94 @@ fn invalid_workload_at_runtime_still_shuts_the_target_down() {
     );
 
     assert!(result.is_err());
+
+    assert_port_released(port);
+}
+
+#[test]
+fn duration_workload_runs_against_a_ready_target_and_cleans_up() {
+    let temp_dir = TempDir::new().unwrap();
+    let port = free_port();
+
+    let request = request(
+        temp_dir.path(),
+        &serve_script(port),
+        port,
+        duration_workload(2, 8),
+    );
+
+    let metrics = runtime::run_with_config(
+        &temp_dir.path().canonicalize().unwrap(),
+        None,
+        &request,
+        &test_env(),
+        &fast_config(),
+    )
+    .unwrap();
+
+    assert_eq!(metrics.startup_time.status, "success");
+
+    let latency = metrics.http_latency.unwrap();
+
+    assert_eq!(latency.status, "completed");
+    assert!(
+        latency.duration_ms >= 2000,
+        "ran {} ms",
+        latency.duration_ms
+    );
+    assert!(latency.duration_ms < 8000, "ran {} ms", latency.duration_ms);
+    assert!(latency.total_requests > 0);
+    assert_eq!(
+        latency.total_requests,
+        latency.successful_requests + latency.failed_requests
+    );
+    assert!(latency.successful_requests > 0);
+    assert!(latency.requests_per_second > 0.0);
+    assert!(latency.p50_ms.unwrap() <= latency.p95_ms.unwrap());
+    assert!(latency.p95_ms.unwrap() <= latency.p99_ms.unwrap());
+
+    let memory = metrics.memory.unwrap();
+
+    assert!(memory.baseline.rss_bytes > 0);
+    assert!(memory.peak.rss_bytes >= memory.baseline.rss_bytes);
+
+    assert_port_released(port);
+}
+
+#[test]
+fn target_exit_during_a_duration_workload_returns_partial_metrics() {
+    let temp_dir = TempDir::new().unwrap();
+    let port = free_port();
+
+    let request = request(
+        temp_dir.path(),
+        &dying_script(port, 1500),
+        port,
+        duration_workload(30, 4),
+    );
+
+    let metrics = runtime::run_with_config(
+        &temp_dir.path().canonicalize().unwrap(),
+        None,
+        &request,
+        &test_env(),
+        &fast_config(),
+    )
+    .unwrap();
+
+    let latency = metrics.http_latency.unwrap();
+
+    assert_eq!(latency.status, "target_exited");
+    assert!(
+        latency.duration_ms < 20_000,
+        "ran {} ms",
+        latency.duration_ms
+    );
+    assert!(latency.total_requests > 0);
+
+    let memory = metrics.memory.unwrap();
+
+    assert!(memory.peak.rss_bytes >= memory.baseline.rss_bytes);
 
     assert_port_released(port);
 }

@@ -3,6 +3,7 @@ mod benchmark {
     pub mod artifact_size;
     pub mod build_time;
     pub mod discovery;
+    pub mod duration;
     pub mod errors;
     pub mod http_latency;
     pub mod memory;

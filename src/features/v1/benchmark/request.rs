@@ -25,13 +25,17 @@ pub struct ReadinessRequest {
     pub headers: Option<BTreeMap<String, String>>,
 }
 
-// HTTP workload executed against the running target
+// HTTP workload executed against the running target, either a fixed request
+// count or a sustained duration, exactly one of requests and duration_seconds
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkloadRequest {
     pub method: String,
     pub path: String,
     #[serde(default)]
     pub headers: BTreeMap<String, String>,
-    pub requests: u64,
+    #[serde(default)]
+    pub requests: Option<u64>,
+    #[serde(default)]
+    pub duration_seconds: Option<u64>,
     pub concurrency: u64,
 }

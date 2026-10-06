@@ -59,7 +59,7 @@ fn deserializes_workload_configuration() {
     assert_eq!(workload.path, "/api/v1/health/app");
     assert_eq!(workload.headers.get("X-Client-Id").unwrap(), "client");
     assert_eq!(workload.headers.get("X-Client-Secret").unwrap(), "secret");
-    assert_eq!(workload.requests, 1000);
+    assert_eq!(workload.requests, Some(1000));
     assert_eq!(workload.concurrency, 50);
 }
 
@@ -80,19 +80,90 @@ fn workload_headers_are_optional() {
 }
 
 #[test]
-fn workload_requires_requests_and_concurrency() {
-    let missing_requests = serde_json::from_value::<BenchmarkRequest>(json!({
-        "path": "/tmp/project",
-        "workload": { "method": "GET", "path": "/health", "concurrency": 2 }
-    }));
-
+fn workload_requires_concurrency() {
     let missing_concurrency = serde_json::from_value::<BenchmarkRequest>(json!({
         "path": "/tmp/project",
         "workload": { "method": "GET", "path": "/health", "requests": 10 }
     }));
 
-    assert!(missing_requests.is_err());
     assert!(missing_concurrency.is_err());
+}
+
+#[test]
+fn deserializes_duration_mode_workload() {
+    let request: BenchmarkRequest = serde_json::from_value(json!({
+        "path": "/tmp/project",
+        "workload": {
+            "method": "GET",
+            "path": "/api/v1/health/app",
+            "headers": {},
+            "duration_seconds": 30,
+            "concurrency": 50
+        }
+    }))
+    .unwrap();
+
+    let workload = request.workload.unwrap();
+
+    assert_eq!(workload.duration_seconds, Some(30));
+    assert_eq!(workload.requests, None);
+    assert_eq!(workload.concurrency, 50);
+}
+
+#[test]
+fn request_count_mode_has_no_duration() {
+    let request: BenchmarkRequest = serde_json::from_value(json!({
+        "path": "/tmp/project",
+        "workload": {
+            "method": "GET",
+            "path": "/health",
+            "requests": 1000,
+            "concurrency": 50
+        }
+    }))
+    .unwrap();
+
+    let workload = request.workload.unwrap();
+
+    assert_eq!(workload.requests, Some(1000));
+    assert_eq!(workload.duration_seconds, None);
+}
+
+#[test]
+fn requests_and_duration_both_deserialize_so_validation_can_reject_them() {
+    let request: BenchmarkRequest = serde_json::from_value(json!({
+        "path": "/tmp/project",
+        "workload": {
+            "method": "GET",
+            "path": "/health",
+            "requests": 10,
+            "duration_seconds": 5,
+            "concurrency": 2
+        }
+    }))
+    .unwrap();
+
+    let workload = request.workload.unwrap();
+
+    assert_eq!(workload.requests, Some(10));
+    assert_eq!(workload.duration_seconds, Some(5));
+}
+
+#[test]
+fn negative_or_fractional_duration_fails_to_deserialize() {
+    for duration in [json!(-1), json!(1.5), json!("30")] {
+        let result = serde_json::from_value::<BenchmarkRequest>(json!({
+            "path": "/tmp/project",
+            "workload": {
+                "method": "GET",
+                "path": "/health",
+                "duration_seconds": duration,
+                "concurrency": 2
+            }
+        }));
+
+        assert!(result.is_err());
+    }
 }
 
 #[test]

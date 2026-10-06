@@ -4,7 +4,7 @@ use benchmark_api::features::v1::benchmark::{
     request::WorkloadRequest,
     workload::{
         executor,
-        plan::{DEFAULT_REQUEST_TIMEOUT, WorkloadPlan},
+        plan::{DEFAULT_REQUEST_TIMEOUT, MAX_DURATION_SECONDS, WorkloadLimit, WorkloadPlan},
     },
 };
 
@@ -17,8 +17,17 @@ fn workload(path: &str, requests: u64, concurrency: u64) -> WorkloadRequest {
         method: "GET".to_string(),
         path: path.to_string(),
         headers: BTreeMap::new(),
-        requests,
+        requests: Some(requests),
+        duration_seconds: None,
         concurrency,
+    }
+}
+
+fn duration_workload(path: &str, seconds: u64, concurrency: u64) -> WorkloadRequest {
+    WorkloadRequest {
+        requests: None,
+        duration_seconds: Some(seconds),
+        ..workload(path, 1, concurrency)
     }
 }
 
@@ -42,7 +51,7 @@ fn plan_builds_url_and_keeps_counts() {
     let plan = plan_for(8090, &workload("/api/v1/health/app", 1000, 50), TIMEOUT);
 
     assert_eq!(plan.url, "http://127.0.0.1:8090/api/v1/health/app");
-    assert_eq!(plan.requests, 1000);
+    assert_eq!(plan.limit, WorkloadLimit::Requests(1000));
     assert_eq!(plan.concurrency, 50);
     assert_eq!(plan.request_timeout, TIMEOUT);
 }
@@ -51,7 +60,7 @@ fn plan_builds_url_and_keeps_counts() {
 fn plan_limits_concurrency_to_request_count() {
     let plan = plan_for(8090, &workload("/", 10, 50), TIMEOUT);
 
-    assert_eq!(plan.requests, 10);
+    assert_eq!(plan.limit, WorkloadLimit::Requests(10));
     assert_eq!(plan.concurrency, 10);
 }
 
@@ -255,4 +264,40 @@ fn reports_target_exit_noticed_after_the_workload() {
     let outcome = executor::execute(&plan, || false).unwrap();
 
     assert!(outcome.target_exited);
+}
+
+#[test]
+fn duration_plan_keeps_the_full_concurrency() {
+    let plan = plan_for(8090, &duration_workload("/", 30, 50), TIMEOUT);
+
+    assert_eq!(plan.limit, WorkloadLimit::Duration(Duration::from_secs(30)));
+    assert_eq!(plan.concurrency, 50);
+}
+
+#[test]
+fn plan_enforces_the_duration_rules() {
+    let build = |request: &WorkloadRequest| WorkloadPlan::new(request, "127.0.0.1", 1, TIMEOUT);
+
+    assert!(build(&duration_workload("/", 1, 1)).is_ok());
+    assert!(build(&duration_workload("/", MAX_DURATION_SECONDS, 1)).is_ok());
+    assert!(build(&duration_workload("/", 0, 1)).is_err());
+    assert!(build(&duration_workload("/", MAX_DURATION_SECONDS + 1, 1)).is_err());
+    assert!(build(&duration_workload("/", 5, 0)).is_err());
+
+    let mut both = workload("/", 10, 1);
+
+    both.duration_seconds = Some(5);
+
+    assert!(build(&both).is_err());
+
+    let mut neither = workload("/", 10, 1);
+
+    neither.requests = None;
+
+    assert!(build(&neither).is_err());
+}
+
+#[test]
+fn maximum_duration_is_three_hundred_seconds() {
+    assert_eq!(MAX_DURATION_SECONDS, 300);
 }
