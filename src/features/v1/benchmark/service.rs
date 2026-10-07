@@ -35,6 +35,7 @@ pub fn run(request: &BenchmarkRequest, env: &Env) -> Result<BenchmarkResult, Ben
             build_time,
             startup_time: runtime_metrics.startup_time,
             memory: runtime_metrics.memory,
+            cpu: runtime_metrics.cpu,
             http_latency: runtime_metrics.http_latency,
         },
     })

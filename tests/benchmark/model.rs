@@ -1,6 +1,7 @@
 use benchmark_api::features::v1::benchmark::model::{
     ArtifactSize, ArtifactSizeCategory, BenchmarkRequest, BenchmarkResult, BuildCommand, BuildTime,
-    Discovery, HttpLatency, Memory, MemoryReading, Metrics, StartupReadiness, StartupTime, Target,
+    Cpu, Discovery, HttpLatency, Memory, MemoryReading, Metrics, StartupReadiness, StartupTime,
+    Target,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -92,6 +93,11 @@ fn serializes_benchmark_result() {
                     rss_bytes: 20971520,
                     rss_size: "20.00 MiB".to_string(),
                 },
+            }),
+            cpu: Some(Cpu {
+                baseline_percent: 0.8,
+                average_percent: 12.4,
+                peak_percent: 28.7,
             }),
             http_latency: Some(HttpLatency {
                 status: "completed".to_string(),
@@ -187,6 +193,11 @@ fn serializes_benchmark_result() {
                         "rss_size": "20.00 MiB"
                     }
                 },
+                "cpu": {
+                    "baseline_percent": 0.8,
+                    "average_percent": 12.4,
+                    "peak_percent": 28.7
+                },
                 "http_latency": {
                     "status": "completed",
                     "total_requests": 1000,
@@ -246,12 +257,14 @@ fn serializes_absent_runtime_metrics_as_null() {
             exit_code: None,
         },
         memory: None,
+        cpu: None,
         http_latency: None,
     };
 
     let value: Value = serde_json::to_value(metrics).unwrap();
 
     assert_eq!(value["memory"], Value::Null);
+    assert_eq!(value["cpu"], Value::Null);
     assert_eq!(value["http_latency"], Value::Null);
 }
 

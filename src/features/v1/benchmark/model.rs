@@ -38,6 +38,7 @@ pub struct Metrics {
     pub build_time: BuildTime,
     pub startup_time: StartupTime,
     pub memory: Option<Memory>,
+    pub cpu: Option<Cpu>,
     pub http_latency: Option<HttpLatency>,
 }
 
@@ -106,6 +107,16 @@ pub struct Memory {
 pub struct MemoryReading {
     pub rss_bytes: u64,
     pub rss_size: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Cpu {
+    // Process-group CPU right before the workload, 100.0 is one fully used core
+    pub baseline_percent: f64,
+    // CPU time during the workload over workload wall-clock time
+    pub average_percent: f64,
+    // Highest sampled CPU during the workload
+    pub peak_percent: f64,
 }
 
 #[derive(Serialize)]

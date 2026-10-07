@@ -11,3 +11,4 @@ pub mod service;
 pub mod target_process;
 pub mod validation;
 pub mod workload;
+pub mod workload_phase;

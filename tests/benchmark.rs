@@ -2,6 +2,10 @@ mod benchmark {
     pub mod api;
     pub mod artifact_size;
     pub mod build_time;
+    pub mod cpu;
+    pub mod cpu_proc;
+    pub mod cpu_runtime;
+    pub mod cpu_target;
     pub mod discovery;
     pub mod duration;
     pub mod errors;
