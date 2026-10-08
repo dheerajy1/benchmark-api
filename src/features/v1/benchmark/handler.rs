@@ -1,7 +1,7 @@
 use axum::{Router, extract::State, routing::post};
 
 use crate::{
-    config::env::Env,
+    app_state::AppState,
     errors::{
         api_error::ApiError, catalog::ErrorCode, fallback::method_not_allowed, json::ApiJson,
         response::ApiSuccess,
@@ -14,9 +14,11 @@ use super::{
 };
 
 async fn benchmark(
-    State(env): State<Env>,
+    State(state): State<AppState>,
     ApiJson(request): ApiJson<BenchmarkRequest>,
 ) -> Result<ApiSuccess<BenchmarkResult>, ApiError> {
+    let env = state.env.clone();
+
     // The benchmark blocks for a long time and uses reqwest::blocking, so it must
     // run on a blocking thread and not on an async worker
     let result = tokio::task::spawn_blocking(move || service::run(&request, &env))
@@ -30,9 +32,17 @@ async fn benchmark(
 
     let result = result?;
 
+    // The result is only reported as completed once it is stored in one transaction
+    state.repository.save(&result).await.map_err(|error| {
+        ApiError::new(
+            ErrorCode::InternalServerError,
+            format!("Failed to persist benchmark result: {error}"),
+        )
+    })?;
+
     Ok(ApiSuccess::ok("Benchmark completed.", result))
 }
 
-pub fn router() -> Router<Env> {
+pub fn router() -> Router<AppState> {
     Router::new().route("/benchmarks", post(benchmark).fallback(method_not_allowed))
 }

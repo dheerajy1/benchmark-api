@@ -1,11 +1,16 @@
+use std::sync::Arc;
+
 use axum::{
     body::{Body, to_bytes},
     http::{Method, Request, StatusCode, header},
 };
-use benchmark_api::{app, config::env::Env};
+use benchmark_api::{app, config::env::Env, persistence::repository::BenchmarkRepository};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tower::ServiceExt;
+use uuid::Uuid;
+
+use super::fake_repository::{FailingRepository, InMemoryRepository};
 
 fn test_env() -> Env {
     Env {
@@ -25,7 +30,17 @@ fn post(body: &str) -> Request<Body> {
 }
 
 async fn send(request: Request<Body>) -> (StatusCode, Value) {
-    let response = app::router(test_env()).oneshot(request).await.unwrap();
+    send_with(Arc::new(InMemoryRepository::default()), request).await
+}
+
+async fn send_with(
+    repository: Arc<dyn BenchmarkRepository>,
+    request: Request<Body>,
+) -> (StatusCode, Value) {
+    let response = app::router(test_env(), repository)
+        .oneshot(request)
+        .await
+        .unwrap();
     let status = response.status();
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
 
@@ -272,4 +287,61 @@ async fn workload_without_requests_or_duration_is_a_validation_error() {
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_error_shape(&body, 400, "VALIDATION_ERROR");
+}
+
+#[tokio::test]
+async fn successful_benchmark_is_persisted_exactly_once() {
+    let repository = Arc::new(InMemoryRepository::default());
+    let temp_dir = TempDir::new().unwrap();
+
+    let body = json!({ "path": temp_dir.path().display().to_string() }).to_string();
+
+    let (status, body) = send_with(repository.clone(), post(&body)).await;
+
+    assert_eq!(status, StatusCode::OK);
+
+    let run_id = Uuid::parse_str(body["data"]["run_id"].as_str().unwrap()).unwrap();
+
+    assert_eq!(repository.saved_run_ids(), vec![run_id]);
+}
+
+#[tokio::test]
+async fn persistence_failure_is_an_internal_server_error() {
+    let temp_dir = TempDir::new().unwrap();
+
+    let body = json!({ "path": temp_dir.path().display().to_string() }).to_string();
+
+    let (status, body) = send_with(Arc::new(FailingRepository), post(&body)).await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_error_shape(&body, 500, "INTERNAL_SERVER_ERROR");
+    assert!(body["error"].as_str().unwrap().contains("persist"));
+    assert!(body.get("data").is_none());
+}
+
+#[tokio::test]
+async fn rejected_requests_are_not_persisted() {
+    let repository = Arc::new(InMemoryRepository::default());
+
+    let (status, _) = send_with(repository.clone(), post("{}")).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(repository.saved_run_ids().is_empty());
+}
+
+#[tokio::test]
+async fn failed_runs_are_not_persisted() {
+    let repository = Arc::new(InMemoryRepository::default());
+    let temp_dir = TempDir::new().unwrap();
+
+    // Two manifests make discovery fail after validation has passed
+    std::fs::write(temp_dir.path().join("package.json"), "{}").unwrap();
+    std::fs::write(temp_dir.path().join("Cargo.toml"), "").unwrap();
+
+    let body = json!({ "path": temp_dir.path().display().to_string() }).to_string();
+
+    let (status, _) = send_with(repository.clone(), post(&body)).await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(repository.saved_run_ids().is_empty());
 }

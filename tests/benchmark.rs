@@ -9,6 +9,7 @@ mod benchmark {
     pub mod discovery;
     pub mod duration;
     pub mod errors;
+    pub mod fake_repository;
     pub mod http_latency;
     pub mod memory;
     pub mod model;

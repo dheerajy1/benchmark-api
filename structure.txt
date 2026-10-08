@@ -18,24 +18,54 @@
 ├── LICENSE
 ├── README.md
 ├── src/
+│   ├── app.rs
 │   ├── config/
 │   │   ├── env.rs
 │   │   └── mod.rs
+│   ├── errors/
+│   │   ├── api_error.rs
+│   │   ├── catalog.rs
+│   │   ├── fallback.rs
+│   │   ├── json.rs
+│   │   ├── mod.rs
+│   │   └── response.rs
 │   ├── features/
 │   │   ├── mod.rs
 │   │   └── v1/
 │   │       ├── benchmark/
 │   │       │   ├── discovery.rs
+│   │       │   ├── error.rs
 │   │       │   ├── handler.rs
+│   │       │   ├── host.rs
 │   │       │   ├── metrics/
 │   │       │   │   ├── artifact_size.rs
 │   │       │   │   ├── build_time.rs
+│   │       │   │   ├── cpu/
+│   │       │   │   │   ├── baseline.rs
+│   │       │   │   │   ├── calc.rs
+│   │       │   │   │   ├── mod.rs
+│   │       │   │   │   ├── proc.rs
+│   │       │   │   │   ├── session.rs
+│   │       │   │   │   └── tracker.rs
+│   │       │   │   ├── http_latency.rs
+│   │       │   │   ├── memory.rs
 │   │       │   │   ├── mod.rs
 │   │       │   │   └── startup_time.rs
 │   │       │   ├── mod.rs
 │   │       │   ├── model.rs
+│   │       │   ├── readiness.rs
+│   │       │   ├── request.rs
+│   │       │   ├── runtime.rs
 │   │       │   ├── service.rs
-│   │       │   └── target_process.rs
+│   │       │   ├── target_process.rs
+│   │       │   ├── validation.rs
+│   │       │   ├── workload/
+│   │       │   │   ├── executor.rs
+│   │       │   │   ├── headers.rs
+│   │       │   │   ├── mod.rs
+│   │       │   │   ├── observation.rs
+│   │       │   │   └── plan.rs
+│   │       │   └── workload_phase.rs
 │   │       └── mod.rs
 │   ├── lib.rs
 │   ├── main.rs
@@ -45,12 +75,28 @@
 ├── structure.txt
 └── tests/
     ├── benchmark/
+    │   ├── api.rs
     │   ├── artifact_size.rs
     │   ├── build_time.rs
+    │   ├── cpu.rs
+    │   ├── cpu_proc.rs
+    │   ├── cpu_runtime.rs
+    │   ├── cpu_target.rs
     │   ├── discovery.rs
+    │   ├── duration.rs
+    │   ├── errors.rs
+    │   ├── http_latency.rs
+    │   ├── memory.rs
     │   ├── model.rs
+    │   ├── readiness.rs
+    │   ├── request.rs
+    │   ├── runtime.rs
     │   ├── service.rs
-    │   └── startup_time.rs
+    │   ├── startup_time.rs
+    │   ├── target_process.rs
+    │   ├── test_server.rs
+    │   ├── validation.rs
+    │   └── workload.rs
     └── benchmark.rs
 
-12 directories, 40 files
+15 directories, 83 files
