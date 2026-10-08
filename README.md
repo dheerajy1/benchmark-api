@@ -1,140 +1,68 @@
 # benchmark-api
 
-benchmark api written in rust
+A Rust HTTP API that benchmarks a local project. You give it a project directory, it builds and starts the project, drives HTTP load against it, measures it, stores the result in PostgreSQL and lets you read the history back.
 
-cargo clean
+## Features
 
-cargo fmt
+- Artifact size of source, build output and excluded files
+- Build time
+- Startup time until the application answers its readiness check
+- Memory (RSS) baseline and peak under load
+- CPU baseline, average and peak under load
+- HTTP latency percentiles and throughput, by request count or sustained duration
+- Persistent history in PostgreSQL with filters and cursor pagination
+- Comparison of two stored runs with backend-decided improvement direction
 
-cargo fmt --check
+Memory and CPU measurement is Linux only (`/proc`).
 
-cargo check
+## Endpoints
 
-cargo test
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/benchmarks` | Run a benchmark and store it |
+| `GET` | `/api/v1/benchmarks` | List historical benchmark summaries |
+| `GET` | `/api/v1/benchmarks/{run_id}` | Get one stored benchmark in the POST result shape |
+| `GET` | `/api/v1/comparisons/summary?runIds=<baseline>,<comparison>` | Compare two stored runs |
 
-cargo fmt --check && cargo check
+Request and response details are in [docs/api.md](docs/api.md).
 
-cargo fmt --check && cargo check && cargo test
+## Quick start
 
-cargo fmt --check && cargo fmt && cargo check && cargo test
+Requirements: a Rust toolchain (edition 2024) and a local PostgreSQL.
 
-cargo fmt && cargo check
+1. Create the database and role, see [docs/postgres/README.md](docs/postgres/README.md).
+2. Copy the environment template and fill it in:
 
-cargo fmt && cargo check && cargo test
+```bash
+cp .env.example .env
+```
 
-cargo clean && cargo fmt && cargo check
+3. Start the API. Pending migrations are applied at startup:
 
+```bash
 cargo run
-
----
-
-# Lifecycle
-```
-prepare target
-    ↓
-discover
-    ↓
-build
-    ↓
-start application
-    ↓
-wait until ready
-    ↓
-┌─────────────────────────────┐
-│ application stays alive     │
-│                             │
-│ memory baseline             │
-│ HTTP latency                │
-│ throughput                  │
-│ CPU                         │
-│ memory under load           │
-└─────────────────────────────┘
-    ↓
-graceful shutdown
-    ↓
-assemble BenchmarkResult
 ```
 
-# Persistence
+## Configuration
 
-Every successful benchmark is stored in PostgreSQL in one transaction. See `docs/postgres/README.md` for setup, migrations and tests.
+| Variable | Purpose |
+| --- | --- |
+| `APP_PORT` | Port the API listens on, bound to `127.0.0.1` |
+| `APP_HEALTH_CLIENT_ID` | Default readiness check credential |
+| `APP_HEALTH_CLIENT_SECRET` | Default readiness check credential |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `TEST_DATABASE_URL` | Optional, enables the real-database tests, passed on the command line only |
 
-```
-service::run -> BenchmarkResult -> BenchmarkRepository::save (one transaction) -> HTTP response
-```
+## Documentation
 
-# Architecture
+| Document | Content |
+| --- | --- |
+| [docs/architecture.md](docs/architecture.md) | Layers, modules, request flow, error and response shapes |
+| [docs/lifecycle.md](docs/lifecycle.md) | The benchmark lifecycle step by step |
+| [docs/api.md](docs/api.md) | Endpoints, parameters, pagination, errors |
+| [docs/development.md](docs/development.md) | Commands, tests, conventions |
+| [docs/postgres/README.md](docs/postgres/README.md) | Database setup, migrations, schema, maintenance |
 
-```
-prepare
-  ↓
-discover
-  ↓
-build
-  ↓
-TargetProcess.start()
-  ↓
-wait_until_ready()
-  ↓
-startup_time
-  ↓
-memory baseline + 5s peak sampling
-  ↓
-[future runtime/load metrics]
-  ↓
-TargetProcess.shutdown()
-```
----
+## License
 
-TEST_DATABASE_URL=postgres://benchmark_api_service:<password>@localhost:5432/benchmark_api_db cargo test --test persistence
-
----
-
-REVOKE ALL ON SCHEMA public FROM benchmark_api_service;
-REVOKE ALL PRIVILEGES ON DATABASE benchmark_api_db FROM benchmark_api_service;
-
----
-
-DROP SCHEMA test_01a11a058a1c722e8c1927626bb03475 CASCADE;
-DROP SCHEMA test_01a11a0587b477478286dcd1aaf3f788 CASCADE;
-
----
-**Step 1: Show every stored table for run `01a11a1c-f037-731f-9005-d3045484d347` in one row**
-
-```sql
-SELECT
-    r.id,
-    r.target_path,
-    rt.code AS runtime,
-    r.created_at,
-    bs.code AS build_status,
-    b.duration_ms AS build_ms,
-    b.args AS build_args,
-    b.started_at AS build_started_at,
-    b.exit_code AS build_exit_code,
-    ss.code AS startup_status,
-    s.duration_ms AS startup_ms,
-    s.ready_at,
-    s.readiness_port,
-    m.baseline_rss_bytes,
-    m.peak_rss_bytes,
-    m.delta_rss_bytes,
-    c.average_percent,
-    c.peak_percent,
-    hs.code AS http_status,
-    h.total_requests,
-    h.requests_per_second,
-    h.p50_ms,
-    h.p99_ms
-FROM benchmark_runs r
-LEFT JOIN runtimes rt ON rt.id = r.runtime_id
-LEFT JOIN benchmark_builds b ON b.benchmark_run_id = r.id
-LEFT JOIN benchmark_statuses bs ON bs.id = b.status_id
-LEFT JOIN benchmark_startups s ON s.benchmark_run_id = r.id
-LEFT JOIN benchmark_statuses ss ON ss.id = s.status_id
-LEFT JOIN benchmark_memories m ON m.benchmark_run_id = r.id
-LEFT JOIN benchmark_cpus c ON c.benchmark_run_id = r.id
-LEFT JOIN benchmark_http_latencies h ON h.benchmark_run_id = r.id
-LEFT JOIN benchmark_statuses hs ON hs.id = h.status_id
-WHERE r.id = '01a11a1c-f037-731f-9005-d3045484d347';
-```
+See [LICENSE](LICENSE).

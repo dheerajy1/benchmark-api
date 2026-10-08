@@ -111,3 +111,27 @@ LEFT JOIN benchmark_statuses hs ON hs.id = h.status_id
 ORDER BY r.created_at DESC
 LIMIT 1;
 ```
+
+## Reading history
+
+`GET /api/v1/benchmarks` and `GET /api/v1/benchmarks/{run_id}` read the same normalized tables. No history or summary table exists and none is needed.
+
+- The list orders by `created_at DESC, id DESC` and pages with `(created_at, id) < (cursor)`. Filters on `runtime_id` (resolved from the runtime code) and `target_path` are applied before the cursor.
+- The detail reads one run across every table and rebuilds the POST result. Formatted strings such as `"50.00 MiB"` are computed again from the stored byte counts.
+- Existing indexes cover the list: `(created_at)`, `(runtime_id, created_at DESC)` and `(target_path, created_at DESC)`.
+
+## Maintenance
+
+Remove the privileges of the service role:
+
+```sql
+REVOKE ALL ON SCHEMA public FROM benchmark_api_service;
+REVOKE ALL PRIVILEGES ON DATABASE benchmark_api_db FROM benchmark_api_service;
+```
+
+Drop a leftover test schema from a panicked test run:
+
+```sql
+DROP SCHEMA test_<uuid> CASCADE;
+```
+

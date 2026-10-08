@@ -1,6 +1,9 @@
 pub mod connection;
+pub mod detail;
 pub mod insert;
 pub mod lookup;
 pub mod mapping;
+pub mod reconstruct;
 pub mod repository;
 pub mod rows;
+pub mod summary;

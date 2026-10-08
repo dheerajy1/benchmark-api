@@ -200,7 +200,7 @@ async fn unknown_route_is_a_not_found_error() {
 #[tokio::test]
 async fn wrong_method_is_a_method_not_allowed_error() {
     let request = Request::builder()
-        .method(Method::GET)
+        .method(Method::DELETE)
         .uri("/api/v1/benchmarks")
         .body(Body::empty())
         .unwrap();

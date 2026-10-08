@@ -13,7 +13,7 @@ pub struct BenchmarkRequest {
     pub workload: Option<WorkloadRequest>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct BenchmarkResult {
     pub run_id: Uuid,
     pub target: Target,
@@ -21,18 +21,18 @@ pub struct BenchmarkResult {
     pub metrics: Metrics,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Target {
     pub path: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Discovery {
     pub runtime: Option<String>,
     pub build: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Metrics {
     pub artifact_size: ArtifactSize,
     pub build_time: BuildTime,
@@ -42,21 +42,21 @@ pub struct Metrics {
     pub http_latency: Option<HttpLatency>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct ArtifactSize {
     pub source: ArtifactSizeCategory,
     pub build: ArtifactSizeCategory,
     pub excluded: ArtifactSizeCategory,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct ArtifactSizeCategory {
     pub bytes: u64,
     pub size: String,
     pub file_count: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct BuildTime {
     pub status: String,
     pub duration_ms: Option<u64>,
@@ -67,7 +67,7 @@ pub struct BuildTime {
     pub exit_code: Option<i32>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct StartupTime {
     pub status: String,
     pub duration_ms: Option<u64>,
@@ -79,7 +79,7 @@ pub struct StartupTime {
     pub exit_code: Option<i32>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct StartupReadiness {
     #[serde(rename = "type")]
     pub readiness_type: String,
@@ -96,14 +96,14 @@ pub struct BuildCommand {
     pub args: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Memory {
     pub baseline: MemoryReading,
     pub peak: MemoryReading,
     pub delta: MemoryReading,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct MemoryReading {
     pub rss_bytes: u64,
     pub rss_size: String,
@@ -119,7 +119,7 @@ pub struct Cpu {
     pub peak_percent: f64,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct HttpLatency {
     // "completed" or "target_exited"
     pub status: String,

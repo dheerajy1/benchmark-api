@@ -1,6 +1,7 @@
 pub mod discovery;
 pub mod error;
 pub mod handler;
+pub mod history;
 pub mod host;
 pub mod metrics;
 pub mod model;

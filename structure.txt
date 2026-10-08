@@ -2,101 +2,153 @@
 
 ./
 ├── .env
+├── .env.example
 ├── .github/
-│   ├── CODEOWNERS
-│   ├── labeler.yml
-│   ├── pull_request_template.md
-│   └── workflows/
-│       ├── pr-check-template.yml
-│       ├── pr-checks.yml
-│       ├── release.yml
-│       └── test.yml
+│   ├── CODEOWNERS
+│   ├── labeler.yml
+│   ├── pull_request_template.md
+│   └── workflows/
+│       ├── pr-check-template.yml
+│       ├── pr-checks.yml
+│       ├── release.yml
+│       └── test.yml
 ├── .gitignore
 ├── .releaserc.json
+├── build.rs
 ├── Cargo.lock
 ├── Cargo.toml
+├── docs/
+│   ├── api.md
+│   ├── architecture.md
+│   ├── development.md
+│   ├── lifecycle.md
+│   └── postgres/
+│       ├── bootstrap.sql
+│       └── README.md
 ├── LICENSE
+├── migrations/
+│   ├── 20261007000001_create_schema.sql
+│   └── 20261007000002_seed_lookup_data.sql
 ├── README.md
 ├── src/
-│   ├── app.rs
-│   ├── config/
-│   │   ├── env.rs
-│   │   └── mod.rs
-│   ├── errors/
-│   │   ├── api_error.rs
-│   │   ├── catalog.rs
-│   │   ├── fallback.rs
-│   │   ├── json.rs
-│   │   ├── mod.rs
-│   │   └── response.rs
-│   ├── features/
-│   │   ├── mod.rs
-│   │   └── v1/
-│   │       ├── benchmark/
-│   │       │   ├── discovery.rs
-│   │       │   ├── error.rs
-│   │       │   ├── handler.rs
-│   │       │   ├── host.rs
-│   │       │   ├── metrics/
-│   │       │   │   ├── artifact_size.rs
-│   │       │   │   ├── build_time.rs
-│   │       │   │   ├── cpu/
-│   │       │   │   │   ├── baseline.rs
-│   │       │   │   │   ├── calc.rs
-│   │       │   │   │   ├── mod.rs
-│   │       │   │   │   ├── proc.rs
-│   │       │   │   │   ├── session.rs
-│   │       │   │   │   └── tracker.rs
-│   │       │   │   ├── http_latency.rs
-│   │       │   │   ├── memory.rs
-│   │       │   │   ├── mod.rs
-│   │       │   │   └── startup_time.rs
-│   │       │   ├── mod.rs
-│   │       │   ├── model.rs
-│   │       │   ├── readiness.rs
-│   │       │   ├── request.rs
-│   │       │   ├── runtime.rs
-│   │       │   ├── service.rs
-│   │       │   ├── target_process.rs
-│   │       │   ├── validation.rs
-│   │       │   ├── workload/
-│   │       │   │   ├── executor.rs
-│   │       │   │   ├── headers.rs
-│   │       │   │   ├── mod.rs
-│   │       │   │   ├── observation.rs
-│   │       │   │   └── plan.rs
-│   │       │   └── workload_phase.rs
-│   │       └── mod.rs
-│   ├── lib.rs
-│   ├── main.rs
-│   └── schemas/
-│       ├── env.rs
-│       └── mod.rs
+│   ├── app.rs
+│   ├── app_state.rs
+│   ├── config/
+│   │   ├── database.rs
+│   │   ├── env.rs
+│   │   └── mod.rs
+│   ├── errors/
+│   │   ├── api_error.rs
+│   │   ├── catalog.rs
+│   │   ├── fallback.rs
+│   │   ├── json.rs
+│   │   ├── mod.rs
+│   │   └── response.rs
+│   ├── features/
+│   │   ├── mod.rs
+│   │   └── v1/
+│   │       ├── benchmark/
+│   │       │   ├── discovery.rs
+│   │       │   ├── error.rs
+│   │       │   ├── handler.rs
+│   │       │   ├── history/
+│   │       │   │   ├── cursor.rs
+│   │       │   │   ├── error.rs
+│   │       │   │   ├── handler.rs
+│   │       │   │   ├── mod.rs
+│   │       │   │   ├── model.rs
+│   │       │   │   ├── query.rs
+│   │       │   │   └── service.rs
+│   │       │   ├── host.rs
+│   │       │   ├── metrics/
+│   │       │   │   ├── artifact_size.rs
+│   │       │   │   ├── build_time.rs
+│   │       │   │   ├── cpu/
+│   │       │   │   │   ├── baseline.rs
+│   │       │   │   │   ├── calc.rs
+│   │       │   │   │   ├── mod.rs
+│   │       │   │   │   ├── proc.rs
+│   │       │   │   │   ├── session.rs
+│   │       │   │   │   └── tracker.rs
+│   │       │   │   ├── http_latency.rs
+│   │       │   │   ├── memory.rs
+│   │       │   │   ├── mod.rs
+│   │       │   │   └── startup_time.rs
+│   │       │   ├── mod.rs
+│   │       │   ├── model.rs
+│   │       │   ├── readiness.rs
+│   │       │   ├── request.rs
+│   │       │   ├── runtime.rs
+│   │       │   ├── service.rs
+│   │       │   ├── target_process.rs
+│   │       │   ├── validation.rs
+│   │       │   ├── workload/
+│   │       │   │   ├── executor.rs
+│   │       │   │   ├── headers.rs
+│   │       │   │   ├── mod.rs
+│   │       │   │   ├── observation.rs
+│   │       │   │   └── plan.rs
+│   │       │   └── workload_phase.rs
+│   │       └── mod.rs
+│   ├── lib.rs
+│   ├── main.rs
+│   ├── persistence/
+│   │   ├── error.rs
+│   │   ├── history.rs
+│   │   ├── mod.rs
+│   │   ├── postgres/
+│   │   │   ├── connection.rs
+│   │   │   ├── detail.rs
+│   │   │   ├── insert.rs
+│   │   │   ├── lookup.rs
+│   │   │   ├── mapping.rs
+│   │   │   ├── mod.rs
+│   │   │   ├── reconstruct.rs
+│   │   │   ├── repository.rs
+│   │   │   ├── rows.rs
+│   │   │   └── summary.rs
+│   │   └── repository.rs
+│   └── schemas/
+│       ├── database.rs
+│       ├── env.rs
+│       └── mod.rs
 ├── structure.txt
 └── tests/
     ├── benchmark/
-    │   ├── api.rs
-    │   ├── artifact_size.rs
-    │   ├── build_time.rs
-    │   ├── cpu.rs
-    │   ├── cpu_proc.rs
-    │   ├── cpu_runtime.rs
-    │   ├── cpu_target.rs
-    │   ├── discovery.rs
-    │   ├── duration.rs
-    │   ├── errors.rs
-    │   ├── http_latency.rs
-    │   ├── memory.rs
-    │   ├── model.rs
-    │   ├── readiness.rs
-    │   ├── request.rs
-    │   ├── runtime.rs
-    │   ├── service.rs
-    │   ├── startup_time.rs
-    │   ├── target_process.rs
-    │   ├── test_server.rs
-    │   ├── validation.rs
-    │   └── workload.rs
-    └── benchmark.rs
+    │   ├── api.rs
+    │   ├── artifact_size.rs
+    │   ├── build_time.rs
+    │   ├── cpu.rs
+    │   ├── cpu_proc.rs
+    │   ├── cpu_runtime.rs
+    │   ├── cpu_target.rs
+    │   ├── discovery.rs
+    │   ├── duration.rs
+    │   ├── errors.rs
+    │   ├── fake_repository.rs
+    │   ├── history_api.rs
+    │   ├── history_cursor.rs
+    │   ├── http_latency.rs
+    │   ├── memory.rs
+    │   ├── model.rs
+    │   ├── readiness.rs
+    │   ├── request.rs
+    │   ├── runtime.rs
+    │   ├── service.rs
+    │   ├── startup_time.rs
+    │   ├── target_process.rs
+    │   ├── test_server.rs
+    │   ├── validation.rs
+    │   └── workload.rs
+    ├── benchmark.rs
+    ├── persistence/
+    │   ├── constraints.rs
+    │   ├── history.rs
+    │   ├── mapping.rs
+    │   ├── migrations.rs
+    │   ├── repository.rs
+    │   ├── sample.rs
+    │   └── support.rs
+    └── persistence.rs
 
-15 directories, 83 files
+21 directories, 128 files

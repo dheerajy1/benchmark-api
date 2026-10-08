@@ -1,4 +1,8 @@
-use axum::{Router, extract::State, routing::post};
+use axum::{
+    Router,
+    extract::State,
+    routing::{get, post},
+};
 
 use crate::{
     app_state::AppState,
@@ -9,6 +13,7 @@ use crate::{
 };
 
 use super::{
+    history,
     model::{BenchmarkRequest, BenchmarkResult},
     service,
 };
@@ -44,5 +49,15 @@ async fn benchmark(
 }
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/benchmarks", post(benchmark).fallback(method_not_allowed))
+    Router::new()
+        .route(
+            "/benchmarks",
+            post(benchmark)
+                .get(history::handler::list)
+                .fallback(method_not_allowed),
+        )
+        .route(
+            "/benchmarks/{run_id}",
+            get(history::handler::detail).fallback(method_not_allowed),
+        )
 }

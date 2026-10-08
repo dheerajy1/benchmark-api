@@ -2,6 +2,9 @@ mod benchmark {
     pub mod api;
     pub mod artifact_size;
     pub mod build_time;
+    pub mod comparison_api;
+    pub mod comparison_metrics;
+    pub mod comparison_sample;
     pub mod cpu;
     pub mod cpu_proc;
     pub mod cpu_runtime;
@@ -10,6 +13,8 @@ mod benchmark {
     pub mod duration;
     pub mod errors;
     pub mod fake_repository;
+    pub mod history_api;
+    pub mod history_cursor;
     pub mod http_latency;
     pub mod memory;
     pub mod model;

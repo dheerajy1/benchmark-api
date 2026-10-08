@@ -1,14 +1,16 @@
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::{
     features::v1::benchmark::model::BenchmarkResult,
     persistence::{
         error::PersistenceError,
-        repository::{BenchmarkRepository, PersistFuture},
+        history::SummaryQuery,
+        repository::{BenchmarkRepository, GetFuture, ListFuture, PersistFuture, RunsFuture},
     },
 };
 
-use super::{insert, mapping};
+use super::{detail, insert, mapping, summary};
 
 pub struct PgBenchmarkRepository {
     pool: PgPool,
@@ -37,5 +39,17 @@ impl PgBenchmarkRepository {
 impl BenchmarkRepository for PgBenchmarkRepository {
     fn save<'a>(&'a self, result: &'a BenchmarkResult) -> PersistFuture<'a> {
         Box::pin(self.insert(result))
+    }
+
+    fn list_summaries<'a>(&'a self, query: &'a SummaryQuery) -> ListFuture<'a> {
+        Box::pin(summary::list(&self.pool, query))
+    }
+
+    fn get_by_run_id<'a>(&'a self, run_id: Uuid) -> GetFuture<'a> {
+        Box::pin(detail::get(&self.pool, run_id))
+    }
+
+    fn get_runs<'a>(&'a self, run_ids: &'a [Uuid]) -> RunsFuture<'a> {
+        Box::pin(detail::get_many(&self.pool, run_ids))
     }
 }
