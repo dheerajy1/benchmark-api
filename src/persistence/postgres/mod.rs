@@ -3,6 +3,7 @@ pub mod detail;
 pub mod insert;
 pub mod lookup;
 pub mod mapping;
+pub mod overview;
 pub mod reconstruct;
 pub mod repository;
 pub mod rows;

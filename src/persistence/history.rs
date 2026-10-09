@@ -35,3 +35,18 @@ pub struct SummaryRow {
     pub requests_per_second: Option<f64>,
     pub p95_ms: Option<f64>,
 }
+
+// One overview trend row, comparison rules already applied by the database:
+// a build or startup duration is only set when that step succeeded and the HTTP numbers
+// are only set for a completed workload with at least one request, otherwise None
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrendRow {
+    pub id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub build_time_ms: Option<i64>,
+    pub startup_time_ms: Option<i64>,
+    pub memory_peak_bytes: Option<i64>,
+    pub cpu_average_percent: Option<f64>,
+    pub requests_per_second: Option<f64>,
+    pub p95_ms: Option<f64>,
+}

@@ -6,11 +6,14 @@ use crate::{
     persistence::{
         error::PersistenceError,
         history::SummaryQuery,
-        repository::{BenchmarkRepository, GetFuture, ListFuture, PersistFuture, RunsFuture},
+        repository::{
+            BenchmarkRepository, CountFuture, GetFuture, ListFuture, PersistFuture, RunsFuture,
+            TrendsFuture,
+        },
     },
 };
 
-use super::{detail, insert, mapping, summary};
+use super::{detail, insert, mapping, overview, summary};
 
 pub struct PgBenchmarkRepository {
     pool: PgPool,
@@ -51,5 +54,13 @@ impl BenchmarkRepository for PgBenchmarkRepository {
 
     fn get_runs<'a>(&'a self, run_ids: &'a [Uuid]) -> RunsFuture<'a> {
         Box::pin(detail::get_many(&self.pool, run_ids))
+    }
+
+    fn count_runs<'a>(&'a self) -> CountFuture<'a> {
+        Box::pin(overview::count_runs(&self.pool))
+    }
+
+    fn list_trends<'a>(&'a self, limit: i64) -> TrendsFuture<'a> {
+        Box::pin(overview::list_trends(&self.pool, limit))
     }
 }

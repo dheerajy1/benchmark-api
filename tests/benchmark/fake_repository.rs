@@ -1,12 +1,15 @@
 use std::sync::Mutex;
 
 use benchmark_api::{
-    features::v1::benchmark::model::BenchmarkResult,
+    features::v1::benchmark::{metrics::http_latency::STATUS_COMPLETED, model::BenchmarkResult},
     persistence::{
         error::PersistenceError,
-        history::{SummaryQuery, SummaryRow},
-        postgres::mapping::run_created_at,
-        repository::{BenchmarkRepository, GetFuture, ListFuture, PersistFuture, RunsFuture},
+        history::{SummaryQuery, SummaryRow, TrendRow},
+        postgres::mapping::{STATUS_SUCCESS, run_created_at},
+        repository::{
+            BenchmarkRepository, CountFuture, GetFuture, ListFuture, PersistFuture, RunsFuture,
+            TrendsFuture,
+        },
         stored_run::StoredRun,
     },
 };
@@ -114,6 +117,62 @@ fn summary_of(result: &BenchmarkResult) -> SummaryRow {
     }
 }
 
+// Mirrors the SQL of the overview trends: newest first and the comparison rules applied.
+// Only complete results are used, a seeded summary row has no statuses to apply the rules to.
+fn trends(repository: &InMemoryRepository, limit: i64) -> Vec<TrendRow> {
+    let mut rows: Vec<TrendRow> = repository
+        .results
+        .lock()
+        .unwrap()
+        .iter()
+        .map(trend_of)
+        .collect();
+
+    rows.sort_by(|a, b| (b.created_at, b.id).cmp(&(a.created_at, a.id)));
+    rows.truncate(usize::try_from(limit).unwrap_or(0));
+
+    rows
+}
+
+fn trend_of(result: &BenchmarkResult) -> TrendRow {
+    let metrics = &result.metrics;
+
+    // Only a completed workload with at least one request is a comparable HTTP result
+    let comparable_http = metrics
+        .http_latency
+        .as_ref()
+        .filter(|latency| latency.status == STATUS_COMPLETED && latency.total_requests > 0);
+
+    TrendRow {
+        id: result.run_id,
+        created_at: run_created_at(result.run_id).unwrap(),
+        build_time_ms: successful_duration(
+            &metrics.build_time.status,
+            metrics.build_time.duration_ms,
+        ),
+        startup_time_ms: successful_duration(
+            &metrics.startup_time.status,
+            metrics.startup_time.duration_ms,
+        ),
+        memory_peak_bytes: metrics
+            .memory
+            .as_ref()
+            .map(|memory| memory.peak.rss_bytes as i64),
+        cpu_average_percent: metrics.cpu.as_ref().map(|cpu| cpu.average_percent),
+        requests_per_second: comparable_http.map(|latency| latency.requests_per_second),
+        p95_ms: comparable_http.and_then(|latency| latency.p95_ms),
+    }
+}
+
+// A duration only counts when the step succeeded
+fn successful_duration(status: &str, duration_ms: Option<u64>) -> Option<i64> {
+    if status == STATUS_SUCCESS {
+        duration_ms.map(|value| value as i64)
+    } else {
+        None
+    }
+}
+
 impl BenchmarkRepository for InMemoryRepository {
     fn save<'a>(&'a self, result: &'a BenchmarkResult) -> PersistFuture<'a> {
         Box::pin(async move {
@@ -142,6 +201,19 @@ impl BenchmarkRepository for InMemoryRepository {
                 .find(|result| result.run_id == run_id)
                 .cloned())
         })
+    }
+
+    fn count_runs<'a>(&'a self) -> CountFuture<'a> {
+        Box::pin(async move {
+            let results = self.results.lock().unwrap().len();
+            let summaries = self.extra_summaries.lock().unwrap().len();
+
+            Ok((results + summaries) as i64)
+        })
+    }
+
+    fn list_trends<'a>(&'a self, limit: i64) -> TrendsFuture<'a> {
+        Box::pin(async move { Ok(trends(self, limit)) })
     }
 }
 
@@ -189,6 +261,22 @@ impl BenchmarkRepository for FailingRepository {
     }
 
     fn get_by_run_id<'a>(&'a self, _run_id: Uuid) -> GetFuture<'a> {
+        Box::pin(async {
+            Err(PersistenceError::Database(
+                "simulated persistence failure".to_string(),
+            ))
+        })
+    }
+
+    fn count_runs<'a>(&'a self) -> CountFuture<'a> {
+        Box::pin(async {
+            Err(PersistenceError::Database(
+                "simulated persistence failure".to_string(),
+            ))
+        })
+    }
+
+    fn list_trends<'a>(&'a self, _limit: i64) -> TrendsFuture<'a> {
         Box::pin(async {
             Err(PersistenceError::Database(
                 "simulated persistence failure".to_string(),

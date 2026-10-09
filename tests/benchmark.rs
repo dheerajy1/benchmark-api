@@ -18,6 +18,7 @@ mod benchmark {
     pub mod http_latency;
     pub mod memory;
     pub mod model;
+    pub mod overview_api;
     pub mod readiness;
     pub mod request;
     pub mod runtime;

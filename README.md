@@ -22,6 +22,7 @@ Memory and CPU measurement is Linux only (`/proc`).
 | `POST` | `/api/v1/benchmarks` | Run a benchmark and store it |
 | `GET` | `/api/v1/benchmarks` | List historical benchmark summaries |
 | `GET` | `/api/v1/benchmarks/{run_id}` | Get one stored benchmark in the POST result shape |
+| `GET` | `/api/v1/benchmarks/overview` | Dashboard totals, the latest run and the trend of the newest 30 runs |
 | `GET` | `/api/v1/comparisons/summary?runIds=<baseline>,<comparison>` | Compare two stored runs |
 
 Request and response details are in [docs/api.md](docs/api.md).

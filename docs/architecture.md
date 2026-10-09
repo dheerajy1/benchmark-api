@@ -36,6 +36,12 @@ src/
 │   ├── target_process.rs   start and stop the target process group
 │   ├── history/            GET list and GET detail (handler, service, query, cursor, model)
 │   └── model.rs            BenchmarkResult, the shape POST returns and GET detail rebuilds
+├── features/v1/overview/
+│   ├── handler.rs          GET /benchmarks/overview
+│   ├── service.rs          count, latest through the history service, trend points
+│   ├── convert.rs          trend row to API point, no calculation
+│   ├── error.rs            storage failures
+│   └── model.rs            the overview response
 ├── features/v1/comparison/
 │   ├── handler.rs          GET /comparisons/summary
 │   ├── query.rs            strict runIds parsing
@@ -52,6 +58,7 @@ src/
         ├── insert.rs       write one run in one transaction
         ├── mapping.rs      BenchmarkResult to rows
         ├── summary.rs      list SQL
+        ├── overview.rs     run count and trend SQL, comparison rules in the query
         ├── detail.rs       detail SQL, one run or several in two queries
         └── reconstruct.rs  rows back to BenchmarkResult
 ```
@@ -63,7 +70,9 @@ BenchmarkRepository
 ├── save(result)                  one transaction, all tables or none
 ├── list_summaries(query)         filters, cursor and limit applied in SQL
 ├── get_by_run_id(run_id)         rebuilds the POST result, None when absent
-└── get_runs(run_ids)             rebuilds exactly the requested runs, absent ids are missing
+├── get_runs(run_ids)             rebuilds exactly the requested runs, absent ids are missing
+├── count_runs()                  the number of every stored run
+└── list_trends(limit)            newest runs, comparison rules applied in SQL, newest first
 ```
 
 - API tests use an in-memory fake of the trait, so they need no database.
@@ -109,6 +118,30 @@ sequenceDiagram
 ```
 
 The service asks for one row more than `limit`. The extra row only answers "is there another page" and is never returned.
+
+## Overview path
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant H as overview handler
+    participant S as overview service
+    participant R as Repository
+    participant D as PostgreSQL
+    C->>H: GET /api/v1/benchmarks/overview
+    H->>S: overview()
+    S->>R: count_runs()
+    R->>D: COUNT(*) FROM benchmark_runs
+    S->>R: list_summaries(limit 1) through the history service
+    R->>D: newest run, ORDER BY created_at DESC, id DESC
+    S->>R: list_trends(30)
+    R->>D: newest 30 runs, status joins decide which metrics are null
+    D-->>R: rows
+    S-->>H: totals + latest + trends
+    H-->>C: 200 success + data
+```
+
+The overview is derived and read-only. It adds no table, view, cache or job. The trend query joins `benchmark_statuses` for the build, the startup and the HTTP result, so a build or startup duration is only returned for a `success` status and the HTTP numbers only for a `completed` workload with at least one request. `latest` reuses the history summary and keeps its raw values, which is why it can differ from the first trend point of the same run.
 
 ## Comparison path
 

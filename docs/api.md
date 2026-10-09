@@ -92,6 +92,92 @@ Returns the same `data` as the POST that created the run, rebuilt from the norma
 
 `discovery.build` is always `null`, as it is in the POST result.
 
+## GET /benchmarks/overview
+
+Returns the dashboard aggregate: the size of the whole history, the newest run and a trend over the newest runs. Everything is calculated from the stored runs on each request, nothing is stored or cached for it.
+
+```text
+GET /api/v1/benchmarks/overview
+```
+
+The endpoint has no query parameters. Any that are sent are ignored.
+
+```json
+{
+  "success": true,
+  "httpCode": 200,
+  "message": "Benchmark overview retrieved.",
+  "data": {
+    "totals": { "total_runs": 128 },
+    "latest": {
+      "run_id": "0192f3a0-0000-7000-8000-000000000000",
+      "target": { "path": "/home/me/projects/my-api" },
+      "discovery": { "runtime": "bun" },
+      "created_at": "2026-10-08T05:11:22.123Z",
+      "summary": {
+        "build_time_ms": 1842,
+        "startup_time_ms": 1500,
+        "memory_peak_bytes": 73400320,
+        "cpu_average_percent": 12.4,
+        "requests_per_second": 121.45,
+        "p95_ms": 8.7
+      }
+    },
+    "trends": [
+      {
+        "run_id": "0192f3a0-0000-7000-8000-000000000000",
+        "created_at": "2026-10-08T05:11:22.123Z",
+        "build_time_ms": null,
+        "startup_time_ms": 1500,
+        "memory_peak_bytes": 73400320,
+        "cpu_average_percent": 12.4,
+        "requests_per_second": 121.45,
+        "p95_ms": 8.7
+      }
+    ]
+  }
+}
+```
+
+| Field | Rule |
+| --- | --- |
+| `totals.total_runs` | the number of every persisted run. There is no run level status in the schema, so there is no `successful_runs` |
+| `latest` | the newest run by `created_at DESC, id DESC`, the same order as `GET /benchmarks`, in the same summary shape as an item of that list. `null` when no run is stored |
+| `trends` | the newest 30 runs of any kind, newest first, in the same order. `[]` when no run is stored. Runs are not filtered by success, because no run level success exists |
+
+### Trend metric rules
+
+Trend values follow the same rules as [GET /comparisons/summary](#get-comparisonssummary). A value that is unavailable, did not succeed or does not apply is `null`, never `0`. A `0` is an actual measured zero.
+
+| Trend field | Present when | Otherwise |
+| --- | --- | --- |
+| `build_time_ms` | the build status is `success` | `null` |
+| `startup_time_ms` | the startup status is `success` | `null` |
+| `memory_peak_bytes` | the run has a memory result | `null` |
+| `cpu_average_percent` | the run has a CPU result | `null` |
+| `requests_per_second` | the HTTP status is `completed` and at least one request was observed | `null` |
+| `p95_ms` | the HTTP status is `completed` and at least one request was observed | `null` |
+
+- A build or startup with any status other than `success` (for example `failed`, `timeout`, `no_build_command` or `no_start_command`) has no duration in the trend.
+- An HTTP result with status `target_exited` has partial numbers that are not a completed benchmark, so both HTTP fields are `null`.
+- Memory and CPU have no status, so they are present whenever they are stored. They are `null` for a run without a workload.
+- Nothing is averaged, interpolated, rounded or otherwise transformed. Values are the stored values.
+
+### Difference from the history list
+
+`GET /benchmarks` is unchanged and still reports the raw stored measurement values, even when the status of that measurement is not a success. For example a `failed` build keeps its `build_time_ms` in the list.
+
+The `trends` of the overview intentionally follow the comparison rules above instead. The same failed build is `null` in `trends`.
+
+`latest` is the history summary of the newest run, so it uses the raw history behavior. For a newest run with a failed build, `latest.summary.build_time_ms` is the stored duration while the first trend point shows `null` for the same run. This is expected.
+
+### Errors
+
+| Case | Response |
+| --- | --- |
+| a method other than `GET` | 405 `METHOD_NOT_ALLOWED` |
+| storage failure | 500 `INTERNAL_SERVER_ERROR` |
+
 ## GET /comparisons/summary
 
 Compares two stored runs. Nothing is stored, the response is always calculated from the two historical runs.
@@ -186,4 +272,3 @@ Every `{}` above is a metric object with the five fields `baseline_value`, `comp
 | storage failure | 500 `INTERNAL_SERVER_ERROR` |
 
 Runs of different targets or runtimes can be compared, each side shows its own target and runtime.
-

@@ -17,7 +17,8 @@ pub const ARTIFACT_SOURCE: &str = "source";
 pub const ARTIFACT_BUILD: &str = "build";
 pub const ARTIFACT_EXCLUDED: &str = "excluded";
 
-const STATUS_SUCCESS: &str = "success";
+// The status code of a build or startup that succeeded, shared with the overview query
+pub const STATUS_SUCCESS: &str = "success";
 
 // Maps the benchmark domain result into database rows, without touching the database
 pub fn map_result(result: &BenchmarkResult) -> Result<BenchmarkRows, PersistenceError> {
