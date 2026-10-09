@@ -133,6 +133,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tower",
+ "tower-http",
  "uuid",
  "validator",
  "walkdir",

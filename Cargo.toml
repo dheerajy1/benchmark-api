@@ -17,6 +17,7 @@ validator = { version = "0.21.0", features = ["derive"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
+tower-http = { version = "0.6", features = ["cors"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
