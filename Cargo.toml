@@ -3,6 +3,9 @@ name = "benchmark-api"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["xtask"]
+
 [dependencies]
 axum = "0.8.9"
 base64 = "0.22"

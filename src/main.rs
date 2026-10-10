@@ -11,7 +11,11 @@ use benchmark_api::{
 
 #[tokio::main]
 async fn main() {
-    dotenvy::dotenv().ok();
+    // dotenvy::dotenv().ok();
+    // Load .env if present; fallback to .env.development for direct cargo run
+    if dotenvy::dotenv().is_err() {
+        let _ = dotenvy::from_filename(".env.development");
+    }
 
     let env = Env::load().unwrap_or_else(|error| {
         eprintln!("[env] Environment validation failed: {error}");
