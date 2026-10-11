@@ -1,7 +1,7 @@
-use std::{thread, time::Duration};
+use std::{sync::Arc, thread, time::Duration};
 
 use super::{
-    live::{RunContext, Stage, skip},
+    live::{LiveGauges, RunContext, SAMPLE_INTERVAL, Stage, gauges::build_sample, skip},
     metrics::{
         cpu::{baseline, session},
         http_latency,
@@ -53,13 +53,23 @@ pub fn run_observed(
         sample_interval: config.sample_interval,
     };
 
-    let memory_session = match memory::begin_for_group(&memory_config, group_id) {
-        Ok(started) => started,
-        Err(error) => return unavailable_or_error(process, error, ctx),
-    };
+    // Only a watched run measures live values, an unwatched one does no sampling work
+    let gauges = ctx
+        .samples_enabled()
+        .then(|| Arc::new(LiveGauges::default()));
 
-    let cpu_session = match session::begin_for_group(cpu_baseline, config.sample_interval, group_id)
-    {
+    let memory_session =
+        match memory::begin_for_group_observed(&memory_config, group_id, gauges.clone()) {
+            Ok(started) => started,
+            Err(error) => return unavailable_or_error(process, error, ctx),
+        };
+
+    let cpu_session = match session::begin_for_group_observed(
+        cpu_baseline,
+        config.sample_interval,
+        group_id,
+        gauges.clone(),
+    ) {
         Ok(started) => started,
         Err(error) => {
             // The memory sampler must not outlive this phase
@@ -74,7 +84,24 @@ pub fn run_observed(
 
     ctx.stage_started(Stage::Workload);
 
-    let outcome = executor::execute(plan, || process.is_running());
+    let outcome = match &gauges {
+        Some(gauges) => {
+            let mut emit_sample = |elapsed: Duration| {
+                ctx.sample(build_sample(gauges, plan.limit, elapsed));
+            };
+
+            executor::execute_observed(
+                plan,
+                || process.is_running(),
+                Some(executor::Observer {
+                    counters: &gauges.http,
+                    interval: SAMPLE_INTERVAL,
+                    on_tick: &mut emit_sample,
+                }),
+            )
+        }
+        None => executor::execute(plan, || process.is_running()),
+    };
 
     // Observers are always stopped, even when the workload failed
     let cpu_finished = cpu_session.finish();

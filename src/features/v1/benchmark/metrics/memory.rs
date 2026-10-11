@@ -1,11 +1,15 @@
 use std::{
     fs,
-    sync::mpsc::{self, Receiver, RecvTimeoutError, Sender},
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, RecvTimeoutError, Sender},
+    },
     thread::{self, JoinHandle},
     time::Duration,
 };
 
 use crate::features::v1::benchmark::{
+    live::LiveGauges,
     metrics::artifact_size::format_size,
     model::{Memory, MemoryReading},
 };
@@ -56,8 +60,28 @@ pub fn begin_for_group(config: &MemoryConfig, group_id: u32) -> Result<MemorySes
     begin(config, move || read_group_rss(group_id))
 }
 
+// Same, and every reading is also published to the live gauges
+pub fn begin_for_group_observed(
+    config: &MemoryConfig,
+    group_id: u32,
+    gauges: Option<Arc<LiveGauges>>,
+) -> Result<MemorySession, String> {
+    begin_observed(config, move || read_group_rss(group_id), gauges)
+}
+
 // Baseline after stabilization, then background sampling through the reader
-pub fn begin<F>(config: &MemoryConfig, mut reader: F) -> Result<MemorySession, String>
+pub fn begin<F>(config: &MemoryConfig, reader: F) -> Result<MemorySession, String>
+where
+    F: FnMut() -> Result<u64, String> + Send + 'static,
+{
+    begin_observed(config, reader, None)
+}
+
+pub fn begin_observed<F>(
+    config: &MemoryConfig,
+    mut reader: F,
+    gauges: Option<Arc<LiveGauges>>,
+) -> Result<MemorySession, String>
 where
     F: FnMut() -> Result<u64, String> + Send + 'static,
 {
@@ -65,12 +89,16 @@ where
 
     let baseline = reader()?;
 
+    if let Some(gauges) = &gauges {
+        gauges.set_memory(baseline, baseline);
+    }
+
     let (stop, signal) = mpsc::channel::<()>();
     let interval = config.sample_interval;
 
     let handle = thread::Builder::new()
         .name("memory-sampler".to_string())
-        .spawn(move || sample_until_stopped(baseline, interval, signal, reader))
+        .spawn(move || sample_until_stopped(baseline, interval, signal, reader, gauges))
         .map_err(|error| format!("Failed to start memory sampler: {error}"))?;
 
     Ok(MemorySession {
@@ -109,6 +137,7 @@ fn sample_until_stopped<F>(
     interval: Duration,
     signal: Receiver<()>,
     mut reader: F,
+    gauges: Option<Arc<LiveGauges>>,
 ) -> SamplerResult
 where
     F: FnMut() -> Result<u64, String>,
@@ -122,7 +151,13 @@ where
     loop {
         match signal.recv_timeout(interval) {
             Err(RecvTimeoutError::Timeout) => match reader() {
-                Ok(sample) => record(&mut result, sample),
+                Ok(sample) => {
+                    record(&mut result, sample);
+
+                    if let Some(gauges) = &gauges {
+                        gauges.set_memory(sample, result.peak);
+                    }
+                }
                 Err(_) => {
                     result.target_gone = true;
                     break;

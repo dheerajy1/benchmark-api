@@ -66,6 +66,12 @@ pub mod skip {
 // so an implementation must return quickly and never block.
 pub trait ProgressSink: Send + Sync {
     fn emit(&self, kind: &'static str, data: Value);
+
+    // Whether the run should measure and emit live samples. A sink nobody watches
+    // returns false, so an unobserved run does no sampling work at all.
+    fn wants_samples(&self) -> bool {
+        false
+    }
 }
 
 // For runs nobody watches, the legacy endpoint and the existing tests
@@ -91,6 +97,10 @@ impl ProgressSink for EntrySink {
         // A refused event means the run is already terminal or over its bound, and
         // progress must never be able to fail the benchmark itself
         let _ = self.entry.append(kind, data);
+    }
+
+    fn wants_samples(&self) -> bool {
+        true
     }
 }
 
@@ -132,6 +142,10 @@ impl RunContext {
         &self.control
     }
 
+    pub fn samples_enabled(&self) -> bool {
+        self.sink.wants_samples()
+    }
+
     pub fn stage_started(&self, stage: Stage) {
         self.sink
             .emit(kind::STAGE_STARTED, json!({ "stage": stage.as_str() }));
@@ -160,6 +174,11 @@ impl RunContext {
             kind::MEASUREMENT_AVAILABLE,
             json!({ "metric": metric.as_str(), "value": value }),
         );
+    }
+
+    // The data comes from live::gauges::build_sample
+    pub fn sample(&self, data: Value) {
+        self.sink.emit(kind::SAMPLE, data);
     }
 
     pub fn baseline_measured(&self, memory_rss_bytes: u64, cpu_percent: f64) {

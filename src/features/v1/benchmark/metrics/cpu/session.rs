@@ -1,10 +1,16 @@
 use std::{
-    sync::mpsc::{self, Receiver, RecvTimeoutError, Sender},
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, RecvTimeoutError, Sender},
+    },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
-use crate::features::v1::benchmark::model::Cpu;
+use crate::features::v1::benchmark::{
+    live::{LiveGauges, gauges::CpuGauge},
+    model::Cpu,
+};
 
 use super::{
     calc::{MIN_PEAK_INTERVAL, build_cpu, cpu_percent, finalize_peak},
@@ -22,6 +28,7 @@ pub struct CpuOutcome {
 }
 
 struct SamplerState {
+    started: Instant,
     last_instant: Instant,
     peak: Option<f64>,
     samples: u64,
@@ -55,11 +62,38 @@ pub fn begin_for_group(
     })
 }
 
+// Same, and every sample is also published to the live gauges
+pub fn begin_for_group_observed(
+    baseline_percent: f64,
+    sample_interval: Duration,
+    group_id: u32,
+    gauges: Option<Arc<LiveGauges>>,
+) -> Result<CpuSession, String> {
+    begin_observed(
+        baseline_percent,
+        sample_interval,
+        move || read_group_ticks(group_id),
+        gauges,
+    )
+}
+
 // Start snapshot and background sampling through the reader
 pub fn begin<F>(
     baseline_percent: f64,
     sample_interval: Duration,
+    reader: F,
+) -> Result<CpuSession, String>
+where
+    F: FnMut() -> Result<Vec<ProcessTicks>, String> + Send + 'static,
+{
+    begin_observed(baseline_percent, sample_interval, reader, None)
+}
+
+pub fn begin_observed<F>(
+    baseline_percent: f64,
+    sample_interval: Duration,
     mut reader: F,
+    gauges: Option<Arc<LiveGauges>>,
 ) -> Result<CpuSession, String>
 where
     F: FnMut() -> Result<Vec<ProcessTicks>, String> + Send + 'static,
@@ -73,7 +107,9 @@ where
 
     let handle = thread::Builder::new()
         .name("cpu-sampler".to_string())
-        .spawn(move || sample_until_stopped(tracker, started, sample_interval, signal, reader))
+        .spawn(move || {
+            sample_until_stopped(tracker, started, sample_interval, signal, reader, gauges)
+        })
         .map_err(|error| format!("Failed to start CPU sampler: {error}"))?;
 
     Ok(CpuSession {
@@ -122,11 +158,13 @@ fn sample_until_stopped<F>(
     interval: Duration,
     signal: Receiver<()>,
     mut reader: F,
+    gauges: Option<Arc<LiveGauges>>,
 ) -> SamplerResult
 where
     F: FnMut() -> Result<Vec<ProcessTicks>, String>,
 {
     let mut state = SamplerState {
+        started,
         last_instant: started,
         peak: None,
         samples: 0,
@@ -136,13 +174,13 @@ where
     loop {
         match signal.recv_timeout(interval) {
             Err(RecvTimeoutError::Timeout) => {
-                if !take_sample(&mut tracker, &mut state, &mut reader) {
+                if !take_sample(&mut tracker, &mut state, &mut reader, &gauges) {
                     break;
                 }
             }
             Ok(()) => {
                 // One last reading so the end of the workload is covered
-                take_sample(&mut tracker, &mut state, &mut reader);
+                take_sample(&mut tracker, &mut state, &mut reader, &gauges);
 
                 break;
             }
@@ -160,7 +198,12 @@ where
 }
 
 // Returns false when the target group could no longer be read
-fn take_sample<F>(tracker: &mut CpuTracker, state: &mut SamplerState, reader: &mut F) -> bool
+fn take_sample<F>(
+    tracker: &mut CpuTracker,
+    state: &mut SamplerState,
+    reader: &mut F,
+    gauges: &Option<Arc<LiveGauges>>,
+) -> bool
 where
     F: FnMut() -> Result<Vec<ProcessTicks>, String>,
 {
@@ -176,13 +219,25 @@ where
 
     state.samples += 1;
 
-    if interval >= MIN_PEAK_INTERVAL {
-        let percent = cpu_percent(ticks, interval);
+    let interval_percent = (interval >= MIN_PEAK_INTERVAL).then(|| cpu_percent(ticks, interval));
 
+    if let Some(percent) = interval_percent {
         state.peak = Some(state.peak.map_or(percent, |peak| peak.max(percent)));
     }
 
     state.last_instant = now;
+
+    if let Some(gauges) = gauges {
+        let window = now.duration_since(state.started);
+        let average_percent =
+            (!window.is_zero()).then(|| cpu_percent(tracker.consumed_ticks(), window));
+
+        gauges.set_cpu(CpuGauge {
+            interval_percent,
+            average_percent,
+            peak_percent: state.peak,
+        });
+    }
 
     true
 }

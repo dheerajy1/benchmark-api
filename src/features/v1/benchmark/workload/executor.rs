@@ -6,6 +6,8 @@ use std::{
 
 use reqwest::{blocking::Client, redirect::Policy};
 
+use crate::features::v1::benchmark::live::gauges::RequestCounters;
+
 use super::{
     observation::RequestObservation,
     plan::{WorkloadLimit, WorkloadPlan},
@@ -30,12 +32,34 @@ struct WorkerLimits {
     deadline: Option<Instant>,
 }
 
+// Live observation of a running workload: the workers count their finished requests, and
+// the caller thread calls `on_tick` with the elapsed workload time every `interval`
+pub struct Observer<'a> {
+    pub counters: &'a RequestCounters,
+    pub interval: Duration,
+    pub on_tick: &'a mut dyn FnMut(Duration),
+}
+
 // Runs the workload with at most plan.concurrency requests in flight
-pub fn execute<F>(plan: &WorkloadPlan, mut is_alive: F) -> Result<WorkloadOutcome, String>
+pub fn execute<F>(plan: &WorkloadPlan, is_alive: F) -> Result<WorkloadOutcome, String>
+where
+    F: FnMut() -> bool,
+{
+    execute_observed(plan, is_alive, None)
+}
+
+// Same workload, optionally reporting its progress while it runs. Without an observer
+// nothing is counted and no tick is made.
+pub fn execute_observed<F>(
+    plan: &WorkloadPlan,
+    mut is_alive: F,
+    mut observer: Option<Observer<'_>>,
+) -> Result<WorkloadOutcome, String>
 where
     F: FnMut() -> bool,
 {
     let client = build_client(plan)?;
+    let counters = observer.as_ref().map(|observer| observer.counters);
     let mut target_exited = false;
 
     let started = Instant::now();
@@ -55,7 +79,7 @@ where
         for index in 0..plan.concurrency {
             let spawned = thread::Builder::new()
                 .name(format!("workload-worker-{index}"))
-                .spawn_scoped(scope, || run_worker(&client, plan, &limits));
+                .spawn_scoped(scope, || run_worker(&client, plan, &limits, counters));
 
             match spawned {
                 Ok(handle) => workers.push(handle),
@@ -66,10 +90,24 @@ where
             }
         }
 
+        let mut next_tick = observer
+            .as_ref()
+            .map(|observer| started + observer.interval);
+
         // Caller thread watches the target while workers send requests
         loop {
             if workers.iter().all(|worker| worker.is_finished()) {
                 break;
+            }
+
+            if let (Some(observer), Some(due)) = (observer.as_mut(), next_tick) {
+                let now = Instant::now();
+
+                if now >= due {
+                    (observer.on_tick)(now.duration_since(started));
+
+                    next_tick = Some(due + observer.interval);
+                }
             }
 
             if !is_alive() {
@@ -121,11 +159,18 @@ fn run_worker(
     client: &Client,
     plan: &WorkloadPlan,
     limits: &WorkerLimits,
+    counters: Option<&RequestCounters>,
 ) -> Vec<RequestObservation> {
     let mut observations = Vec::new();
 
     while may_issue_request(plan, limits) {
-        observations.push(send_request(client, plan));
+        let observation = send_request(client, plan);
+
+        if let Some(counters) = counters {
+            counters.record(observation.success);
+        }
+
+        observations.push(observation);
     }
 
     observations

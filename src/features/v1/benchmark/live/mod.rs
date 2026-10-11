@@ -1,5 +1,6 @@
 pub mod error;
 pub mod event;
+pub mod gauges;
 pub mod log;
 pub mod registry;
 pub mod runs;
@@ -7,6 +8,7 @@ pub mod sink;
 pub mod slot;
 
 pub use error::SubmitError;
+pub use gauges::{LiveGauges, SAMPLE_INTERVAL};
 pub use registry::{RunEntry, RunRegistry};
 pub use runs::{Accepted, LiveRuns, RunExecutor, ServiceExecutor};
 pub use sink::{Metric, ProgressSink, RunContext, RunControl, Stage, skip};
