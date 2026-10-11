@@ -81,6 +81,11 @@ where
 }
 
 impl MemorySession {
+    // The RSS read right after stabilization, available while sampling is still running
+    pub fn baseline_bytes(&self) -> u64 {
+        self.baseline
+    }
+
     // Stops sampling and finalizes peak and delta
     pub fn finish(self) -> Result<MemoryOutcome, String> {
         // The sampler may already have exited, so a failed send is fine

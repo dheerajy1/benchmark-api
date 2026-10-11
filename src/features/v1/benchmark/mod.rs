@@ -3,6 +3,7 @@ pub mod error;
 pub mod handler;
 pub mod history;
 pub mod host;
+pub mod live;
 pub mod metrics;
 pub mod model;
 pub mod readiness;

@@ -7,22 +7,67 @@ use crate::config::env::Env;
 use super::{
     discovery,
     error::BenchmarkError,
+    live::{Metric, RunContext, RunPermit, Stage},
     metrics::{artifact_size, build_time},
     model::{BenchmarkRequest, BenchmarkResult, Metrics, Target},
     runtime, validation,
 };
 
-pub fn run(request: &BenchmarkRequest, env: &Env) -> Result<BenchmarkResult, BenchmarkError> {
+// Status reported for a step that has no status of its own
+const STATUS_SUCCESS: &str = "success";
+
+// Validation and target preparation. Nothing is started and no execution slot is
+// needed, so an invalid request is rejected the same way whether or not a run is active.
+pub fn prepare(request: &BenchmarkRequest) -> Result<PathBuf, BenchmarkError> {
     validation::validate(request).map_err(BenchmarkError::Validation)?;
 
-    let target = prepare_target(&request.path)?;
-    let run_id = Uuid::now_v7();
+    prepare_target(&request.path)
+}
 
-    let discovery = discovery::discover(&target)?;
-    let artifact_size = artifact_size::measure(&target)?;
-    let build_time = build_time::measure(&target, discovery.runtime.as_deref())?;
+// The original entry point, unchanged. It does not take part in the execution slot, so
+// the HTTP handlers do not use it: they call `execute` with a permit instead.
+pub fn run(request: &BenchmarkRequest, env: &Env) -> Result<BenchmarkResult, BenchmarkError> {
+    let target = prepare(request)?;
 
-    let runtime_metrics = runtime::run(&target, discovery.runtime.as_deref(), request, env)?;
+    run_core(&target, request, env, Uuid::now_v7(), &RunContext::noop())
+}
+
+// Runs a prepared request. The permit proves the caller owns the execution slot.
+pub fn execute(
+    target: &Path,
+    request: &BenchmarkRequest,
+    env: &Env,
+    run_id: Uuid,
+    ctx: &RunContext,
+    _permit: &RunPermit,
+) -> Result<BenchmarkResult, BenchmarkError> {
+    run_core(target, request, env, run_id, ctx)
+}
+
+fn run_core(
+    target: &Path,
+    request: &BenchmarkRequest,
+    env: &Env,
+    run_id: Uuid,
+    ctx: &RunContext,
+) -> Result<BenchmarkResult, BenchmarkError> {
+    ctx.stage_started(Stage::Discovery);
+    let discovery = discovery::discover(target)?;
+    ctx.measurement(Metric::Discovery, &discovery);
+    ctx.stage_completed(Stage::Discovery, STATUS_SUCCESS, None);
+
+    ctx.stage_started(Stage::ArtifactSize);
+    let artifact_size = artifact_size::measure(target)?;
+    ctx.measurement(Metric::ArtifactSize, &artifact_size);
+    ctx.stage_completed(Stage::ArtifactSize, STATUS_SUCCESS, None);
+
+    ctx.stage_started(Stage::Build);
+    let build_time = build_time::measure(target, discovery.runtime.as_deref())?;
+    ctx.measurement(Metric::BuildTime, &build_time);
+    ctx.stage_completed(Stage::Build, &build_time.status, build_time.duration_ms);
+
+    let runtime_metrics =
+        runtime::run_observed(target, discovery.runtime.as_deref(), request, env, ctx)?;
 
     Ok(BenchmarkResult {
         run_id,

@@ -87,7 +87,7 @@ fn run_server(profile: &str, release: bool) {
 fn run_build() {
     let env_file = ".env.production";
     dotenvy::from_filename(env_file).expect("Failed to load .env.production");
-    
+
     let status = Command::new("cargo")
         .args(["build", "--release", "--package", "benchmark-api"])
         .status()

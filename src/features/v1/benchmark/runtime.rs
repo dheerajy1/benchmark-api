@@ -3,6 +3,7 @@ use std::{path::Path, time::Duration};
 use crate::config::env::Env;
 
 use super::{
+    live::{Metric, RunContext, Stage, skip},
     metrics::{
         memory::MemoryConfig,
         startup_time::{self, StartupPlan, StartupPreparation},
@@ -51,7 +52,25 @@ pub fn run(
     request: &BenchmarkRequest,
     env: &Env,
 ) -> Result<RuntimeMetrics, String> {
-    run_with_config(target, runtime, request, env, &RuntimeConfig::default())
+    run_observed(target, runtime, request, env, &RunContext::noop())
+}
+
+// Same run, reporting its progress to the context
+pub fn run_observed(
+    target: &Path,
+    runtime: Option<&str>,
+    request: &BenchmarkRequest,
+    env: &Env,
+    ctx: &RunContext,
+) -> Result<RuntimeMetrics, String> {
+    run_with_config_observed(
+        target,
+        runtime,
+        request,
+        env,
+        &RuntimeConfig::default(),
+        ctx,
+    )
 }
 
 // Owns the target process: start, readiness, startup, workload, memory, CPU, shutdown
@@ -62,15 +81,40 @@ pub fn run_with_config(
     env: &Env,
     config: &RuntimeConfig,
 ) -> Result<RuntimeMetrics, String> {
+    run_with_config_observed(target, runtime, request, env, config, &RunContext::noop())
+}
+
+pub fn run_with_config_observed(
+    target: &Path,
+    runtime: Option<&str>,
+    request: &BenchmarkRequest,
+    env: &Env,
+    config: &RuntimeConfig,
+    ctx: &RunContext,
+) -> Result<RuntimeMetrics, String> {
     let plan = match startup_time::prepare_with_startup(target, runtime, request.startup.as_ref())?
     {
-        StartupPreparation::Skipped(result) => return Ok(RuntimeMetrics::startup_only(result)),
+        StartupPreparation::Skipped(result) => {
+            ctx.stage_started(Stage::Startup);
+            ctx.measurement(Metric::StartupTime, &result);
+            ctx.stage_completed(Stage::Startup, &result.status, result.duration_ms);
+
+            let reason = if request.workload.is_some() {
+                skip::NO_START_COMMAND
+            } else {
+                skip::NO_WORKLOAD
+            };
+
+            ctx.stage_skipped(Stage::Workload, reason);
+
+            return Ok(RuntimeMetrics::startup_only(result));
+        }
         StartupPreparation::Launch(plan) => plan,
     };
 
     let mut process = TargetProcess::start(&plan.command, &plan.working_directory)?;
 
-    let result = run_phases(&mut process, plan, request, env, config);
+    let result = run_phases(&mut process, plan, request, env, config, ctx);
 
     // Shutdown happens exactly once, on success and on every error path
     process.shutdown();
@@ -84,24 +128,32 @@ fn run_phases(
     request: &BenchmarkRequest,
     env: &Env,
     config: &RuntimeConfig,
+    ctx: &RunContext,
 ) -> Result<RuntimeMetrics, String> {
     let host = plan.readiness.host.clone();
     let port = plan.readiness.port;
 
+    ctx.stage_started(Stage::Startup);
     let startup = startup_time::observe(plan, process, env, startup_time::DEFAULT_TIMEOUT)?;
+    ctx.measurement(Metric::StartupTime, &startup);
+    ctx.stage_completed(Stage::Startup, &startup.status, startup.duration_ms);
 
     // Workload, memory and CPU are only meaningful for a ready target
     if startup.status != "success" {
+        ctx.stage_skipped(Stage::Workload, skip::STARTUP_NOT_SUCCESSFUL);
+
         return Ok(RuntimeMetrics::startup_only(startup));
     }
 
     let Some(workload) = request.workload.as_ref() else {
+        ctx.stage_skipped(Stage::Workload, skip::NO_WORKLOAD);
+
         return Ok(RuntimeMetrics::startup_only(startup));
     };
 
     let workload_plan = WorkloadPlan::new(workload, &host, port, config.request_timeout)?;
 
-    let phase = workload_phase::run(process, &workload_plan, &config.memory)?;
+    let phase = workload_phase::run_observed(process, &workload_plan, &config.memory, ctx)?;
 
     Ok(RuntimeMetrics {
         startup_time: startup,

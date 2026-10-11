@@ -7,6 +7,7 @@ pub enum ErrorCode {
     ValidationError,
     NotFound,
     MethodNotAllowed,
+    Conflict,
     InternalServerError,
 }
 
@@ -18,6 +19,7 @@ impl ErrorCode {
             ErrorCode::ValidationError => "VALIDATION_ERROR",
             ErrorCode::NotFound => "NOT_FOUND",
             ErrorCode::MethodNotAllowed => "METHOD_NOT_ALLOWED",
+            ErrorCode::Conflict => "CONFLICT",
             ErrorCode::InternalServerError => "INTERNAL_SERVER_ERROR",
         }
     }
@@ -27,6 +29,7 @@ impl ErrorCode {
             ErrorCode::BadRequest | ErrorCode::ValidationError => StatusCode::BAD_REQUEST,
             ErrorCode::NotFound => StatusCode::NOT_FOUND,
             ErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
+            ErrorCode::Conflict => StatusCode::CONFLICT,
             ErrorCode::InternalServerError => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -38,6 +41,7 @@ impl ErrorCode {
             ErrorCode::ValidationError => "Request validation failed.",
             ErrorCode::NotFound => "The requested resource was not found.",
             ErrorCode::MethodNotAllowed => "This method is not allowed for the requested resource.",
+            ErrorCode::Conflict => "Another benchmark is already running.",
             ErrorCode::InternalServerError => "Something went wrong on the server.",
         }
     }
