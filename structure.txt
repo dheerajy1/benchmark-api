@@ -24,7 +24,10 @@
 │   ├── api.md
 │   ├── architecture.md
 │   ├── development.md
+│   ├── execution-guard.md
 │   ├── lifecycle.md
+│   ├── live-runs-api.md
+│   ├── live-samples.md
 │   └── postgres/
 │       ├── README.md
 │       └── bootstrap.sql
@@ -61,6 +64,18 @@
 │   │       │   │   ├── query.rs
 │   │       │   │   └── service.rs
 │   │       │   ├── host.rs
+│   │       │   ├── live/
+│   │       │   │   ├── error.rs
+│   │       │   │   ├── event.rs
+│   │       │   │   ├── gauges.rs
+│   │       │   │   ├── handler.rs
+│   │       │   │   ├── log.rs
+│   │       │   │   ├── mod.rs
+│   │       │   │   ├── registry.rs
+│   │       │   │   ├── runs.rs
+│   │       │   │   ├── sink.rs
+│   │       │   │   ├── slot.rs
+│   │       │   │   └── sockets.rs
 │   │       │   ├── metrics/
 │   │       │   │   ├── artifact_size.rs
 │   │       │   │   ├── build_time.rs
@@ -109,6 +124,7 @@
 │   │           └── service.rs
 │   ├── lib.rs
 │   ├── main.rs
+│   ├── origin.rs
 │   ├── persistence/
 │   │   ├── error.rs
 │   │   ├── history.rs
@@ -164,6 +180,19 @@
 │   │   ├── validation.rs
 │   │   └── workload.rs
 │   ├── benchmark.rs
+│   ├── legacy_disconnect.rs
+│   ├── live/
+│   │   ├── guard_http.rs
+│   │   ├── live_http.rs
+│   │   ├── log.rs
+│   │   ├── overhead.rs
+│   │   ├── registry.rs
+│   │   ├── runs.rs
+│   │   ├── samples.rs
+│   │   ├── slot.rs
+│   │   ├── support.rs
+│   │   └── ws.rs
+│   ├── live.rs
 │   ├── persistence/
 │   │   ├── comparison.rs
 │   │   ├── constraints.rs
@@ -180,4 +209,4 @@
     └── src/
         └── main.rs
 
-26 directories, 153 files
+28 directories, 180 files

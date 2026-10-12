@@ -11,6 +11,7 @@ mod comparison_sample;
 
 mod live {
     pub mod guard_http;
+    pub mod live_http;
     pub mod log;
     pub mod overhead;
     pub mod registry;
@@ -18,4 +19,5 @@ mod live {
     pub mod samples;
     pub mod slot;
     pub mod support;
+    pub mod ws;
 }

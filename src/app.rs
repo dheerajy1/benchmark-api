@@ -14,6 +14,7 @@ use crate::{
         self,
         benchmark::live::{LiveRuns, RunSlot},
     },
+    origin,
     persistence::repository::BenchmarkRepository,
 };
 
@@ -33,18 +34,7 @@ pub fn router_with_live(
 ) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(
-            |origin: &HeaderValue, _request_parts| {
-                if let Ok(s) = origin.to_str() {
-                    s == "http://localhost:5002"
-                        || s == "http://127.0.0.1:5002"
-                        || s == "http://localhost:8092"
-                        || s == "http://127.0.0.1:8092"
-                        || s.ends_with(".usw3.devtunnels.ms")
-                        || s.ends_with(".trycloudflare.com")
-                } else {
-                    false
-                }
-            },
+            |value: &HeaderValue, _request_parts| origin::is_allowed_header(value),
         ))
         .allow_methods([Method::GET, Method::POST])
         .allow_headers([CONTENT_TYPE]);

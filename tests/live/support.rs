@@ -1,5 +1,5 @@
 use std::{
-    net::TcpListener,
+    net::{SocketAddr, TcpListener, TcpStream},
     path::Path,
     process::Command,
     sync::{
@@ -24,6 +24,9 @@ use benchmark_api::{
     },
 };
 use serde_json::{Value, json};
+use tokio_tungstenite::tungstenite::{
+    self, Message, WebSocket, client::IntoClientRequest, http::HeaderValue, stream::MaybeTlsStream,
+};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -235,4 +238,199 @@ pub fn long_benchmark_body(dir: &Path, port: u16, seconds: u64) -> String {
         }
     })
     .to_string()
+}
+
+// Emits some samples, then runs until the test opens the gate
+pub struct SamplingExecutor {
+    pub samples: usize,
+    pub gate: Arc<AtomicBool>,
+}
+
+impl RunExecutor for SamplingExecutor {
+    fn execute(
+        &self,
+        _request: &BenchmarkRequest,
+        _target: &Path,
+        _env: &Env,
+        run_id: Uuid,
+        ctx: &RunContext,
+        _permit: &RunPermit,
+    ) -> Result<BenchmarkResult, BenchmarkError> {
+        ctx.stage_started(Stage::Build);
+
+        for index in 0..self.samples {
+            ctx.sample(json!({ "n": index }));
+        }
+
+        while !self.gate.load(Ordering::SeqCst) {
+            thread::sleep(Duration::from_millis(5));
+        }
+
+        Ok(comparison_sample::result(run_id))
+    }
+}
+
+// A real server on a real port. Dropping it opens every registered gate first, so a failing
+// test can never hang on a run that waits for its gate.
+pub struct TestServer {
+    pub address: SocketAddr,
+    pub runtime: tokio::runtime::Runtime,
+    gates: Vec<Arc<AtomicBool>>,
+}
+
+impl TestServer {
+    pub fn with_gate(mut self, gate: Arc<AtomicBool>) -> Self {
+        self.gates.push(gate);
+
+        self
+    }
+}
+
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        for gate in &self.gates {
+            gate.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+pub fn serve(router: Router) -> TestServer {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let listener = runtime
+        .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
+        .unwrap();
+    let address = listener.local_addr().unwrap();
+
+    runtime.spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+
+    TestServer {
+        address,
+        runtime,
+        gates: Vec::new(),
+    }
+}
+
+// What a blocking WebSocket client reads
+pub enum Frame {
+    Json(Value),
+    Close(u16),
+    Ping,
+    Eof,
+    Timeout,
+}
+
+pub struct WsClient {
+    socket: WebSocket<MaybeTlsStream<TcpStream>>,
+}
+
+impl WsClient {
+    // The origins are sent as Origin headers, none sends no header at all
+    pub fn open(
+        address: SocketAddr,
+        path: &str,
+        origins: &[&str],
+    ) -> Result<Self, tungstenite::Error> {
+        let mut request = format!("ws://{address}{path}").into_client_request()?;
+
+        for origin in origins {
+            request
+                .headers_mut()
+                .append("Origin", HeaderValue::from_str(origin).unwrap());
+        }
+
+        let (socket, _response) = tungstenite::connect(request)?;
+
+        Ok(Self { socket })
+    }
+
+    pub fn next(&mut self, timeout: Duration) -> Frame {
+        if let MaybeTlsStream::Plain(stream) = self.socket.get_mut() {
+            stream.set_read_timeout(Some(timeout)).unwrap();
+        }
+
+        loop {
+            match self.socket.read() {
+                Ok(Message::Text(text)) => {
+                    return Frame::Json(serde_json::from_str(text.as_str()).unwrap());
+                }
+                Ok(Message::Close(frame)) => {
+                    return Frame::Close(frame.map(|frame| u16::from(frame.code)).unwrap_or(1005));
+                }
+                Ok(Message::Ping(_)) => return Frame::Ping,
+                Ok(_) => continue,
+                Err(tungstenite::Error::Io(error))
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    return Frame::Timeout;
+                }
+                Err(_) => return Frame::Eof,
+            }
+        }
+    }
+
+    pub fn json(&mut self) -> Value {
+        match self.next(Duration::from_secs(10)) {
+            Frame::Json(value) => value,
+            Frame::Close(code) => panic!("expected a JSON frame, got close {code}"),
+            Frame::Ping => panic!("expected a JSON frame, got a ping"),
+            Frame::Eof => panic!("expected a JSON frame, the socket ended"),
+            Frame::Timeout => panic!("expected a JSON frame, timed out"),
+        }
+    }
+
+    // Every JSON frame up to the close, and the close code (0 when the socket just ended)
+    pub fn until_close(&mut self) -> (Vec<Value>, u16) {
+        let mut frames = Vec::new();
+
+        loop {
+            match self.next(Duration::from_secs(20)) {
+                Frame::Json(value) => frames.push(value),
+                Frame::Close(code) => return (frames, code),
+                Frame::Ping => continue,
+                Frame::Eof => return (frames, 0),
+                Frame::Timeout => panic!("timed out before the close, got {frames:?}"),
+            }
+        }
+    }
+
+    pub fn send_text(&mut self, text: &str) {
+        let _ = self.socket.send(Message::text(text.to_string()));
+    }
+}
+
+pub fn wait_until_blocking(mut condition: impl FnMut() -> bool, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+
+    while !condition() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
+pub fn get_json(path: &str) -> Request<Body> {
+    Request::builder()
+        .method(Method::GET)
+        .uri(path)
+        .body(Body::empty())
+        .unwrap()
+}
+
+pub fn post_to(path: &str, body: &str) -> Request<Body> {
+    Request::builder()
+        .method(Method::POST)
+        .uri(path)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap()
 }

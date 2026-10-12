@@ -28,6 +28,7 @@ pub struct SuccessBody<T> {
 
 // Successful handler result wrapped in the global success shape
 pub struct ApiSuccess<T> {
+    status: StatusCode,
     message: String,
     data: T,
 }
@@ -35,6 +36,16 @@ pub struct ApiSuccess<T> {
 impl<T> ApiSuccess<T> {
     pub fn ok(message: impl Into<String>, data: T) -> Self {
         Self {
+            status: StatusCode::OK,
+            message: message.into(),
+            data,
+        }
+    }
+
+    // The request was taken and its work continues after the response
+    pub fn accepted(message: impl Into<String>, data: T) -> Self {
+        Self {
+            status: StatusCode::ACCEPTED,
             message: message.into(),
             data,
         }
@@ -43,7 +54,7 @@ impl<T> ApiSuccess<T> {
 
 impl<T: Serialize> IntoResponse for ApiSuccess<T> {
     fn into_response(self) -> Response {
-        let status = StatusCode::OK;
+        let status = self.status;
 
         let body = SuccessBody {
             success: true,

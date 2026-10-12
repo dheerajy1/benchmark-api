@@ -26,6 +26,7 @@ use super::{
     registry::{RunEntry, RunRegistry},
     sink::{EntrySink, RunContext, Stage},
     slot::{RunKind, RunPermit, RunSlot},
+    sockets::{SocketLimits, WsConfig},
 };
 
 // Runs the benchmark on a blocking thread. It takes the permit by reference, so it
@@ -75,6 +76,8 @@ pub struct LiveRuns {
     repository: Arc<dyn BenchmarkRepository>,
     env: Env,
     executor: Arc<dyn RunExecutor>,
+    ws: WsConfig,
+    sockets: Arc<SocketLimits>,
 }
 
 impl LiveRuns {
@@ -95,17 +98,44 @@ impl LiveRuns {
         registry: Arc<RunRegistry>,
         executor: Arc<dyn RunExecutor>,
     ) -> Self {
+        let ws = WsConfig::default();
+
         Self {
             slot,
             registry,
             repository,
             env,
             executor,
+            sockets: SocketLimits::new(&ws),
+            ws,
         }
+    }
+
+    // Replaces the WebSocket settings, the socket counters start from zero
+    pub fn with_ws_config(mut self, ws: WsConfig) -> Self {
+        self.sockets = SocketLimits::new(&ws);
+        self.ws = ws;
+
+        self
+    }
+
+    pub fn ws_config(&self) -> WsConfig {
+        self.ws
+    }
+
+    pub fn sockets(&self) -> &Arc<SocketLimits> {
+        &self.sockets
     }
 
     pub fn slot(&self) -> &Arc<RunSlot> {
         &self.slot
+    }
+
+    // The status of a run that is still in the registry
+    pub fn registry_status(&self, run_id: Uuid) -> Option<&'static str> {
+        self.registry
+            .get(run_id)
+            .map(|entry| entry.status().as_str())
     }
 
     pub fn registry(&self) -> &Arc<RunRegistry> {

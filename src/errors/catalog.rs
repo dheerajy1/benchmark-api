@@ -5,6 +5,7 @@ use axum::http::StatusCode;
 pub enum ErrorCode {
     BadRequest,
     ValidationError,
+    Forbidden,
     NotFound,
     MethodNotAllowed,
     Conflict,
@@ -17,6 +18,7 @@ impl ErrorCode {
         match self {
             ErrorCode::BadRequest => "BAD_REQUEST",
             ErrorCode::ValidationError => "VALIDATION_ERROR",
+            ErrorCode::Forbidden => "FORBIDDEN",
             ErrorCode::NotFound => "NOT_FOUND",
             ErrorCode::MethodNotAllowed => "METHOD_NOT_ALLOWED",
             ErrorCode::Conflict => "CONFLICT",
@@ -27,6 +29,7 @@ impl ErrorCode {
     pub fn http_status(self) -> StatusCode {
         match self {
             ErrorCode::BadRequest | ErrorCode::ValidationError => StatusCode::BAD_REQUEST,
+            ErrorCode::Forbidden => StatusCode::FORBIDDEN,
             ErrorCode::NotFound => StatusCode::NOT_FOUND,
             ErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
             ErrorCode::Conflict => StatusCode::CONFLICT,
@@ -39,6 +42,7 @@ impl ErrorCode {
         match self {
             ErrorCode::BadRequest => "Some request information is invalid or malformed.",
             ErrorCode::ValidationError => "Request validation failed.",
+            ErrorCode::Forbidden => "This request is not allowed.",
             ErrorCode::NotFound => "The requested resource was not found.",
             ErrorCode::MethodNotAllowed => "This method is not allowed for the requested resource.",
             ErrorCode::Conflict => "Another benchmark is already running.",

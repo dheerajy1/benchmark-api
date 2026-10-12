@@ -1,10 +1,14 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{
+        Arc, Mutex, MutexGuard,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
 
 use serde_json::Value;
+use tokio::sync::watch;
 use uuid::Uuid;
 
 use super::log::{AppendError, EventLog, Replay, RunStatus, SAMPLE_RING_CAPACITY};
@@ -19,6 +23,10 @@ pub const MAX_TERMINAL_RUNS: usize = 20;
 pub struct RunEntry {
     run_id: Uuid,
     log: Mutex<EventLog>,
+    // Carries the seq of the last appended event, so a reader can wait for news
+    notify: watch::Sender<u64>,
+    // WebSockets currently attached to this run
+    sockets: AtomicUsize,
 }
 
 impl RunEntry {
@@ -26,6 +34,8 @@ impl RunEntry {
         Self {
             run_id,
             log: Mutex::new(EventLog::with_sample_capacity(run_id, sample_capacity)),
+            notify: watch::channel(0).0,
+            sockets: AtomicUsize::new(0),
         }
     }
 
@@ -34,7 +44,39 @@ impl RunEntry {
     }
 
     pub fn append(&self, kind: &'static str, data: Value) -> Result<u64, AppendError> {
-        lock(&self.log).append(kind, data)
+        let appended = lock(&self.log).append(kind, data);
+
+        // Outside the log lock, so a woken reader never waits for the writer
+        if let Ok(seq) = appended {
+            self.notify.send_replace(seq);
+        }
+
+        appended
+    }
+
+    // A receiver that is woken by every new event. Subscribe before reading the log,
+    // then no event can be missed between the read and the wait.
+    pub fn subscribe(&self) -> watch::Receiver<u64> {
+        self.notify.subscribe()
+    }
+
+    pub fn socket_count(&self) -> usize {
+        self.sockets.load(Ordering::SeqCst)
+    }
+
+    // Takes a socket place unless the run already has `max`
+    pub(super) fn try_acquire_socket(&self, max: usize) -> bool {
+        if self.sockets.fetch_add(1, Ordering::SeqCst) >= max {
+            self.sockets.fetch_sub(1, Ordering::SeqCst);
+
+            return false;
+        }
+
+        true
+    }
+
+    pub(super) fn release_socket(&self) {
+        self.sockets.fetch_sub(1, Ordering::SeqCst);
     }
 
     pub fn replay(&self, after: u64) -> Replay {

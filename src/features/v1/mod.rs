@@ -9,6 +9,7 @@ pub fn router() -> Router<AppState> {
     Router::new().nest(
         "/api/v1",
         benchmark::handler::router()
+            .merge(benchmark::live::handler::router())
             .merge(comparison::handler::router())
             .merge(overview::handler::router()),
     )
