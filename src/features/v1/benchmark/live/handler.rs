@@ -30,7 +30,7 @@ use crate::{
 use super::{
     event::RunEvent,
     log::RunStatus,
-    registry::RunEntry,
+    registry::{CancelOutcome, RunEntry},
     sockets::{SocketPermit, WsConfig},
 };
 
@@ -45,13 +45,42 @@ pub struct Capabilities {
     pub cancel: bool,
 }
 
-// What the 202 of POST /api/v1/live-runs carries
-#[derive(Debug, Serialize)]
+// What the 202 of POST /api/v1/live-runs carries. The cancel token is shown here and nowhere
+// else, so a debug print redacts it.
+#[derive(Serialize)]
 pub struct LiveRunAccepted {
     pub run_id: Uuid,
     pub ws_path: String,
     pub status_path: String,
+    pub cancel_token: String,
     pub capabilities: Capabilities,
+}
+
+impl std::fmt::Debug for LiveRunAccepted {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LiveRunAccepted")
+            .field("run_id", &self.run_id)
+            .field("ws_path", &self.ws_path)
+            .field("status_path", &self.status_path)
+            .field("cancel_token", &"<redacted>")
+            .field("capabilities", &self.capabilities)
+            .finish()
+    }
+}
+
+// Body of POST /api/v1/live-runs/{run_id}/cancel. A missing token is a refusal like a wrong one.
+#[derive(Deserialize)]
+pub struct CancelBody {
+    #[serde(default)]
+    pub cancel_token: Option<String>,
+}
+
+// What the 202 of a cancel request carries
+#[derive(Debug, Serialize)]
+pub struct CancelAccepted {
+    pub state: &'static str,
+    pub already_requested: bool,
 }
 
 // The JSON replay of a run, the same events and rules as the WebSocket
@@ -84,7 +113,8 @@ async fn create(
             run_id,
             ws_path: format!("/api/v1/live-runs/{run_id}/ws"),
             status_path: format!("/api/v1/live-runs/{run_id}"),
-            capabilities: Capabilities { cancel: false },
+            cancel_token: accepted.cancel_token,
+            capabilities: Capabilities { cancel: true },
         },
     ))
 }
@@ -120,6 +150,56 @@ async fn replay(
             events: replay.events,
         },
     ))
+}
+
+// POST /api/v1/live-runs/{run_id}/cancel
+//
+// Asks the run to stop and answers at once: the run is not cancelled yet. `run.cancelled` is
+// recorded by the run itself once its work has really stopped and its cleanup is done.
+async fn cancel(
+    State(state): State<AppState>,
+    Path(run_id): Path<String>,
+    ApiJson(body): ApiJson<CancelBody>,
+) -> Result<ApiSuccess<CancelAccepted>, ApiError> {
+    let run_id = parse_run_id(&run_id)?;
+
+    let entry = state.live.registry().get(run_id).ok_or_else(|| {
+        ApiError::new(
+            ErrorCode::NotFound,
+            format!("Live run {run_id} was not found."),
+        )
+    })?;
+
+    // Never says which part was wrong, and never repeats a token
+    if !entry.verify_token(body.cancel_token.as_deref().unwrap_or_default()) {
+        return Err(ApiError::new(
+            ErrorCode::Forbidden,
+            "The cancel token is missing or not valid.",
+        ));
+    }
+
+    match entry.request_cancel() {
+        CancelOutcome::Requested => Ok(cancel_accepted(false)),
+        CancelOutcome::AlreadyRequested => Ok(cancel_accepted(true)),
+        CancelOutcome::Saving => Err(ApiError::new(
+            ErrorCode::Conflict,
+            "The run is already saving its result and can no longer be cancelled.",
+        )),
+        CancelOutcome::Finished(status) => Err(ApiError::new(
+            ErrorCode::Conflict,
+            format!("The run already finished ({}).", status.as_str()),
+        )),
+    }
+}
+
+fn cancel_accepted(already_requested: bool) -> ApiSuccess<CancelAccepted> {
+    ApiSuccess::accepted(
+        "Cancellation requested.",
+        CancelAccepted {
+            state: "cancelling",
+            already_requested,
+        },
+    )
 }
 
 fn parse_run_id(run_id: &str) -> Result<Uuid, ApiError> {
@@ -328,5 +408,9 @@ pub fn router() -> Router<AppState> {
         .route(
             "/live-runs/{run_id}/ws",
             get(connect).fallback(method_not_allowed),
+        )
+        .route(
+            "/live-runs/{run_id}/cancel",
+            post(cancel).fallback(method_not_allowed),
         )
 }

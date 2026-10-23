@@ -80,7 +80,7 @@ async fn a_submission_is_accepted_with_the_run_id_and_the_paths_to_follow_it() {
         body["data"]["status_path"],
         json!(format!("/api/v1/live-runs/{run_id}"))
     );
-    assert_eq!(body["data"]["capabilities"], json!({ "cancel": false }));
+    assert_eq!(body["data"]["capabilities"], json!({ "cancel": true }));
 
     // The run is registered before the 202 is sent
     let (status, replay) = send(

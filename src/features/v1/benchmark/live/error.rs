@@ -10,6 +10,8 @@ pub enum SubmitError {
     Invalid(BenchmarkError),
     // Another benchmark holds the execution slot
     Busy(ActiveRun),
+    // The run could not be set up, for example no cancel token could be created
+    Internal(String),
 }
 
 impl From<SubmitError> for ApiError {
@@ -17,6 +19,9 @@ impl From<SubmitError> for ApiError {
         match error {
             SubmitError::Invalid(error) => ApiError::from(error),
             SubmitError::Busy(active) => ApiError::new(ErrorCode::Conflict, busy_detail(&active)),
+            SubmitError::Internal(message) => {
+                ApiError::new(ErrorCode::InternalServerError, message)
+            }
         }
     }
 }

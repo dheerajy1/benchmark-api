@@ -488,6 +488,16 @@ fn a_disconnected_client_does_not_affect_the_run_and_its_socket_is_released() {
     wait_until_blocking(|| started.live.slot().active().is_none(), "the slot");
 
     assert_eq!(started.repository.saved_run_ids(), vec![run_id]);
+
+    // Closing the socket is never a cancel request
+    assert_eq!(entry.status().as_str(), "completed");
+    assert!(
+        !entry
+            .replay(0)
+            .events
+            .iter()
+            .any(|event| event.kind == kind::RUN_CANCELLING)
+    );
 }
 
 #[test]

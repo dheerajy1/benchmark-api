@@ -7,11 +7,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::sync::watch;
 use uuid::Uuid;
 
-use super::log::{AppendError, EventLog, Replay, RunStatus, SAMPLE_RING_CAPACITY};
+use super::{
+    control::{CancelRequest, RunControl},
+    event::kind,
+    log::{AppendError, EventLog, Replay, RunStatus, SAMPLE_RING_CAPACITY},
+};
 
 // How long a finished run stays replayable
 pub const RETENTION: Duration = Duration::from_secs(600);
@@ -19,10 +23,26 @@ pub const RETENTION: Duration = Duration::from_secs(600);
 // Finished runs kept at most, active runs are not counted
 pub const MAX_TERMINAL_RUNS: usize = 20;
 
+// What a request to cancel a run led to
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CancelOutcome {
+    // This request started the cancellation and `run.cancelling` was recorded
+    Requested,
+    // Cancellation was already underway, nothing was added
+    AlreadyRequested,
+    // The run is saving its result, too late to cancel
+    Saving,
+    // The run already ended
+    Finished(RunStatus),
+}
+
 // One run in the registry, shared by the supervisor that writes and the readers
 pub struct RunEntry {
     run_id: Uuid,
     log: Mutex<EventLog>,
+    control: RunControl,
+    // Proves the right to cancel, kept in memory only and never part of an event
+    cancel_token: String,
     // Carries the seq of the last appended event, so a reader can wait for news
     notify: watch::Sender<u64>,
     // WebSockets currently attached to this run
@@ -30,10 +50,12 @@ pub struct RunEntry {
 }
 
 impl RunEntry {
-    fn new(run_id: Uuid, sample_capacity: usize) -> Self {
+    fn new(run_id: Uuid, sample_capacity: usize, cancel_token: String) -> Self {
         Self {
             run_id,
             log: Mutex::new(EventLog::with_sample_capacity(run_id, sample_capacity)),
+            control: RunControl::default(),
+            cancel_token,
             notify: watch::channel(0).0,
             sockets: AtomicUsize::new(0),
         }
@@ -41,6 +63,50 @@ impl RunEntry {
 
     pub fn run_id(&self) -> Uuid {
         self.run_id
+    }
+
+    // The switch shared with the execution of this run
+    pub fn control(&self) -> &RunControl {
+        &self.control
+    }
+
+    // Whether the presented token is the one of this run. An entry without a token, and an
+    // empty token, never match. The comparison takes the same time wherever they differ.
+    pub fn verify_token(&self, presented: &str) -> bool {
+        !self.cancel_token.is_empty()
+            && constant_time_eq(self.cancel_token.as_bytes(), presented.as_bytes())
+    }
+
+    // Asks the run to stop. Everything happens under the log lock, so a run that ends at the
+    // same moment is either seen as ended here, or gets `run.cancelling` before its end event.
+    // The terminal event itself is recorded by the supervisor once the work has really stopped.
+    pub fn request_cancel(&self) -> CancelOutcome {
+        let (outcome, appended) = {
+            let mut log = lock(&self.log);
+
+            if log.is_terminal() {
+                return CancelOutcome::Finished(log.status());
+            }
+
+            match self.control.request_cancel() {
+                CancelRequest::Requested => {
+                    let stage = log.current_stage().map(str::to_string);
+                    let appended = log
+                        .append(kind::RUN_CANCELLING, json!({ "stage": stage }))
+                        .ok();
+
+                    (CancelOutcome::Requested, appended)
+                }
+                CancelRequest::AlreadyRequested => (CancelOutcome::AlreadyRequested, None),
+                CancelRequest::Finalizing => (CancelOutcome::Saving, None),
+            }
+        };
+
+        if let Some(seq) = appended {
+            self.notify.send_replace(seq);
+        }
+
+        outcome
     }
 
     pub fn append(&self, kind: &'static str, data: Value) -> Result<u64, AppendError> {
@@ -127,10 +193,15 @@ impl RunRegistry {
         })
     }
 
+    // A run nobody can cancel, its token is empty and never matches
     pub fn register(&self, run_id: Uuid) -> Arc<RunEntry> {
+        self.register_with_token(run_id, String::new())
+    }
+
+    pub fn register_with_token(&self, run_id: Uuid, cancel_token: String) -> Arc<RunEntry> {
         self.evict_at(Instant::now());
 
-        let entry = Arc::new(RunEntry::new(run_id, self.sample_capacity));
+        let entry = Arc::new(RunEntry::new(run_id, self.sample_capacity, cancel_token));
 
         lock(&self.runs).insert(run_id, Arc::clone(&entry));
 
@@ -181,4 +252,19 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+// Compares without stopping at the first difference. Only the length can show.
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+
+    let mut difference = 0u8;
+
+    for (a, b) in left.iter().zip(right) {
+        difference |= a ^ b;
+    }
+
+    difference == 0
 }

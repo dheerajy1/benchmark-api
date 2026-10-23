@@ -6,7 +6,10 @@ use std::{
 
 use reqwest::{blocking::Client, redirect::Policy};
 
-use crate::features::v1::benchmark::live::gauges::RequestCounters;
+use crate::features::v1::benchmark::{
+    live::{RunControl, gauges::RequestCounters},
+    stop::Stop,
+};
 
 use super::{
     observation::RequestObservation,
@@ -52,13 +55,32 @@ where
 // nothing is counted and no tick is made.
 pub fn execute_observed<F>(
     plan: &WorkloadPlan,
-    mut is_alive: F,
-    mut observer: Option<Observer<'_>>,
+    is_alive: F,
+    observer: Option<Observer<'_>>,
 ) -> Result<WorkloadOutcome, String>
 where
     F: FnMut() -> bool,
 {
+    execute_cancellable(plan, is_alive, observer, &RunControl::default(), || {})
+        .map_err(Stop::into_message)
+}
+
+// Same workload, stopped by a cancel request. The workers stop issuing requests, `on_cancel`
+// is called once so the caller can kill the target and make the requests in flight fail at
+// once, and the workers are joined before this answers.
+pub fn execute_cancellable<F, C>(
+    plan: &WorkloadPlan,
+    mut is_alive: F,
+    mut observer: Option<Observer<'_>>,
+    control: &RunControl,
+    mut on_cancel: C,
+) -> Result<WorkloadOutcome, Stop>
+where
+    F: FnMut() -> bool,
+    C: FnMut(),
+{
     let client = build_client(plan)?;
+    let mut cancelled = false;
     let counters = observer.as_ref().map(|observer| observer.counters);
     let mut target_exited = false;
 
@@ -110,6 +132,16 @@ where
                 }
             }
 
+            if control.is_cancel_requested() {
+                cancelled = true;
+                limits.cancel.store(true, Ordering::SeqCst);
+
+                // Killing the target first makes the requests in flight fail at once
+                on_cancel();
+
+                break;
+            }
+
             if !is_alive() {
                 target_exited = true;
                 limits.cancel.store(true, Ordering::SeqCst);
@@ -129,7 +161,12 @@ where
         }
 
         Ok(observations)
-    })?;
+    })
+    .map_err(Stop::Failed)?;
+
+    if cancelled {
+        return Err(Stop::Cancelled);
+    }
 
     let elapsed = started.elapsed();
 

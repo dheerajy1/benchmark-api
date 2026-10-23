@@ -318,3 +318,31 @@ fn every_event_carries_the_envelope_of_the_contract() {
     assert!(at.ends_with('Z'));
     assert_eq!(&at[10..11], "T");
 }
+
+#[test]
+fn a_cancelled_terminal_event_sets_the_cancelled_status_and_closes_the_log() {
+    let mut log = log_with_capacity(10);
+
+    add(&mut log, kind::RUN_ACCEPTED);
+    add(&mut log, kind::RUN_CANCELLING);
+
+    // Asking to stop is progress, not an end
+    assert_eq!(log.status(), RunStatus::Running);
+    assert!(!log.is_terminal());
+
+    add(&mut log, kind::RUN_CANCELLED);
+
+    assert_eq!(log.status(), RunStatus::Cancelled);
+    assert_eq!(log.status().as_str(), "cancelled");
+    assert!(log.is_terminal());
+    assert!(log.terminal_at().is_some());
+
+    assert_eq!(
+        log.append(kind::RUN_FAILED, json!({})),
+        Err(AppendError::AlreadyTerminal)
+    );
+    assert_eq!(
+        log.append(kind::RUN_COMPLETED, json!({})),
+        Err(AppendError::AlreadyTerminal)
+    );
+}

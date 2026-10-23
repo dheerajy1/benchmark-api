@@ -8,9 +8,11 @@ use serde_json::Value;
 
 use crate::config::env::Env;
 use crate::features::v1::benchmark::{
+    live::RunControl,
     model::{BuildCommand, StartupReadiness, StartupTime},
     readiness::ReadinessSettings,
     request::StartupRequest,
+    stop::Stop,
     target_process::{READINESS_METHOD, ReadyOutcome, TargetProcess},
 };
 
@@ -110,7 +112,20 @@ pub fn observe(
     env: &Env,
     timeout: Duration,
 ) -> Result<StartupTime, String> {
-    let outcome = process.wait_until_ready_with(&plan.readiness, env, timeout)?;
+    observe_cancellable(plan, process, env, timeout, &RunControl::default())
+        .map_err(Stop::into_message)
+}
+
+// Same observation, ended by a cancel request. The process is left running, the caller shuts
+// it down and checks that it is gone.
+pub fn observe_cancellable(
+    plan: StartupPlan,
+    process: &mut TargetProcess,
+    env: &Env,
+    timeout: Duration,
+    control: &RunControl,
+) -> Result<StartupTime, Stop> {
+    let outcome = process.wait_until_ready_with_control(&plan.readiness, env, timeout, control)?;
 
     let duration_ms = process.startup_elapsed().as_millis() as u64;
     let started_at = format_timestamp(process.started_at());
@@ -131,6 +146,7 @@ pub fn observe(
         ReadyOutcome::Rejected => ("unhealthy", None, None),
         ReadyOutcome::Exited(code) => ("failed", None, code),
         ReadyOutcome::TimedOut => ("timeout", None, None),
+        ReadyOutcome::Cancelled => return Err(Stop::Cancelled),
     };
 
     Ok(StartupTime {

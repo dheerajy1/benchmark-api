@@ -1,12 +1,10 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::{event::kind, registry::RunEntry};
+use super::{control::RunControl, event::kind, registry::RunEntry};
+use crate::features::v1::benchmark::error::BenchmarkError;
 
 // The steps of a run, in the order they happen
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,20 +102,6 @@ impl ProgressSink for EntrySink {
     }
 }
 
-// Ownership hook for stopping a run. Reserved: v1 has no cancellation, so the flag is
-// never set and nothing reads it yet. It exists so cancellation can be added later
-// without changing how a run is started or owned.
-#[derive(Clone, Default)]
-pub struct RunControl {
-    cancel_requested: Arc<AtomicBool>,
-}
-
-impl RunControl {
-    pub fn is_cancel_requested(&self) -> bool {
-        self.cancel_requested.load(Ordering::SeqCst)
-    }
-}
-
 // Everything the execution needs besides the request: where progress goes and the
 // control handle. Cheap to clone, so later phases can hand it to sampler threads.
 #[derive(Clone)]
@@ -134,12 +118,26 @@ impl RunContext {
         }
     }
 
+    // A context that shares the control of a run, so a cancel request reaches the execution
+    pub fn with_control(sink: Arc<dyn ProgressSink>, control: RunControl) -> Self {
+        Self { sink, control }
+    }
+
     pub fn noop() -> Self {
         Self::new(Arc::new(NoopSink))
     }
 
     pub fn control(&self) -> &RunControl {
         &self.control
+    }
+
+    // Ends the run with Cancelled when a cancel request is pending, for the points between steps
+    pub fn check_cancelled(&self) -> Result<(), BenchmarkError> {
+        if self.control.is_cancel_requested() {
+            Err(BenchmarkError::Cancelled)
+        } else {
+            Ok(())
+        }
     }
 
     pub fn samples_enabled(&self) -> bool {

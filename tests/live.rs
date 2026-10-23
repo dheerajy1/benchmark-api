@@ -10,10 +10,14 @@ mod fake_repository;
 mod comparison_sample;
 
 mod live {
+    pub mod cancel;
+    pub mod cancel_http;
+    pub mod cancel_stages;
     pub mod guard_http;
     pub mod live_http;
     pub mod log;
     pub mod overhead;
+    pub mod process_group;
     pub mod registry;
     pub mod runs;
     pub mod samples;

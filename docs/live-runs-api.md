@@ -20,12 +20,15 @@ Same request body as `POST /api/v1/benchmarks`. Validation and the path check ha
   "data": { "run_id": "0192f3a0-...",
             "ws_path": "/api/v1/live-runs/0192f3a0-.../ws",
             "status_path": "/api/v1/live-runs/0192f3a0-...",
-            "capabilities": { "cancel": false } } }
+            "cancel_token": "3f9a0c1b7d2e48a6b5c4d3e2f1a09b8c",
+            "capabilities": { "cancel": true } } }
 ```
 
 - `400` for an invalid body or path, same errors as the legacy endpoint.
 - `409 CONFLICT` while any benchmark runs. `error` is the id of the active live run, or
   "A benchmark is already running." when a legacy run holds the slot.
+
+`cancel_token` is shown only here. See `live-run-cancellation.md` for cancelling.
 
 ### `GET /api/v1/live-runs/{run_id}?after=<seq>`
 
@@ -37,7 +40,7 @@ The JSON replay, the fallback when a WebSocket is not possible. `after` defaults
             "dropped_through_seq": 0, "truncated": false, "events": [ ... ] } }
 ```
 
-`status` is `running`, `completed` or `failed`. `404` for a run that is not in memory
+`status` is `running`, `completed`, `failed` or `cancelled`. `404` for a run that is not in memory
 (unknown, or finished and expired): a finished and stored run is read with
 `GET /api/v1/benchmarks/{run_id}`. `400` for a malformed id, `400 VALIDATION_ERROR` for a
 malformed `after`.
@@ -110,8 +113,9 @@ the same allow-list as CORS (`src/origin.rs`):
 The origin is not authentication: anybody who can reach the API can start a run, as with
 the legacy endpoint. Known limits of the allow-list, unchanged: it accepts any
 `*.trycloudflare.com` and `*.usw3.devtunnels.ms` origin, so any tunnel of anybody passes, and it
-lists only the dashboard's own local ports (5002 in development, 8092 in production), so a
-dashboard served from another local port is refused.
+lists the API's own local ports (5002 in development, 8092 in production) and not the dashboard's
+(5003 in development, 8093 in production), so a dashboard opened from its own local address would be
+refused. Access through the `*.trycloudflare.com` and `*.usw3.devtunnels.ms` tunnels is what passes.
 
 ## Heartbeat and limits
 
@@ -121,7 +125,24 @@ dashboard served from another local port is refused.
   smaller frames are ignored.
 - Every way a socket ends releases its place: close, drop, timeout, error.
 
-## Not verified
+## What was verified in a real browser, and what was not
 
-No claim is made about Cloudflare Tunnel: idle timeouts, WebSocket support and ping behavior
-through the actual tunnel have to be tested with a real run.
+Verified on 2026-10-13, in one browser, with the dashboard served through a VS Code dev tunnel and
+this API behind a Cloudflare quick tunnel:
+
+- The browser opened `wss://<quick tunnel>/api/v1/live-runs/{run_id}/ws?after=0` and got
+  `101 Switching Protocols`, with no polling requests next to it.
+- Full runs of about 38 seconds (build, startup, baseline, a 30 second workload, save) were delivered
+  live, step by step, with a sample every 500 ms and the result stored.
+- Refreshing the page in the middle of a run restored the pipeline, the tiles and the charts at the
+  right step and the page kept updating.
+- Setting the browser offline for about five seconds in the middle of a run and going back online
+  reconnected on its own and filled the charts in without a gap.
+
+Not verified:
+
+- A long run with a long silent stretch (a build of many minutes). The 20 second ping is meant to
+  keep the socket open, nothing has proven it against the tunnel's idle timeouts.
+- A named Cloudflare tunnel (only quick tunnels were tried) and the API behind a VS Code dev tunnel.
+- More than one viewer of the same run, other browsers, phones.
+- The polling fallback in a real browser (it is covered by tests only).

@@ -8,7 +8,12 @@ use std::{
 
 use serde_json::Value;
 
-use crate::features::v1::benchmark::model::{BuildCommand, BuildTime};
+use crate::features::v1::benchmark::{
+    live::RunControl,
+    model::{BuildCommand, BuildTime},
+    process_group,
+    stop::Stop,
+};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
@@ -25,7 +30,13 @@ impl Default for BuildTimeConfig {
 }
 
 pub fn measure(target: &Path, runtime: Option<&str>) -> Result<BuildTime, String> {
-    measure_with_config(target, runtime, &BuildTimeConfig::default())
+    measure_with_config(
+        target,
+        runtime,
+        &BuildTimeConfig::default(),
+        &RunControl::default(),
+    )
+    .map_err(Stop::into_message)
 }
 
 pub fn measure_with_timeout(
@@ -33,14 +44,31 @@ pub fn measure_with_timeout(
     runtime: Option<&str>,
     timeout: Duration,
 ) -> Result<BuildTime, String> {
-    measure_with_config(target, runtime, &BuildTimeConfig { timeout })
+    measure_with_config(
+        target,
+        runtime,
+        &BuildTimeConfig { timeout },
+        &RunControl::default(),
+    )
+    .map_err(Stop::into_message)
+}
+
+// Same build, stopped by a cancel request. The build's whole process group is stopped and
+// checked to be gone before this answers, so a cancelled build leaves nothing running.
+pub fn measure_cancellable(
+    target: &Path,
+    runtime: Option<&str>,
+    control: &RunControl,
+) -> Result<BuildTime, Stop> {
+    measure_with_config(target, runtime, &BuildTimeConfig::default(), control)
 }
 
 fn measure_with_config(
     target: &Path,
     runtime: Option<&str>,
     config: &BuildTimeConfig,
-) -> Result<BuildTime, String> {
+    control: &RunControl,
+) -> Result<BuildTime, Stop> {
     let command = discover_build_command(target, runtime)?;
 
     let Some(command) = command else {
@@ -64,12 +92,16 @@ fn measure_with_config(
 
     let mut child = spawn_build_process(&command, &working_directory)?;
 
-    let outcome = wait_for_process(&mut child, config.timeout);
+    let outcome = wait_for_process(&mut child, config.timeout, control);
 
     let finished_at = format_timestamp(SystemTime::now());
     let duration_ms = started.elapsed().as_millis() as u64;
 
     match outcome {
+        ProcessOutcome::Cancelled(Ok(())) => Err(Stop::Cancelled),
+        ProcessOutcome::Cancelled(Err(message)) => Err(Stop::Failed(format!(
+            "The build was cancelled but could not be stopped completely: {message}"
+        ))),
         ProcessOutcome::Completed(status) => Ok(BuildTime {
             status: if status.success() {
                 "success".to_string()
@@ -165,9 +197,15 @@ fn spawn_build_process(
 enum ProcessOutcome {
     Completed(ExitStatus),
     TimedOut,
+    // A cancel request stopped the build, with the result of stopping its process group
+    Cancelled(Result<(), String>),
 }
 
-fn wait_for_process(child: &mut std::process::Child, timeout: Duration) -> ProcessOutcome {
+fn wait_for_process(
+    child: &mut std::process::Child,
+    timeout: Duration,
+    control: &RunControl,
+) -> ProcessOutcome {
     let started = Instant::now();
 
     loop {
@@ -175,15 +213,19 @@ fn wait_for_process(child: &mut std::process::Child, timeout: Duration) -> Proce
             Ok(Some(status)) => return ProcessOutcome::Completed(status),
             Ok(None) => {}
             Err(_) => {
-                terminate_process_tree(child);
-                let _ = child.wait();
+                stop_tree(child);
+
                 return ProcessOutcome::TimedOut;
             }
         }
 
+        if control.is_cancel_requested() {
+            return ProcessOutcome::Cancelled(process_group::stop_child_group(child));
+        }
+
         if started.elapsed() >= timeout {
-            terminate_process_tree(child);
-            let _ = child.wait();
+            stop_tree(child);
+
             return ProcessOutcome::TimedOut;
         }
 
@@ -191,25 +233,10 @@ fn wait_for_process(child: &mut std::process::Child, timeout: Duration) -> Proce
     }
 }
 
-fn terminate_process_tree(child: &mut std::process::Child) {
-    #[cfg(unix)]
-    {
-        let pid = child.id().to_string();
-
-        let _ = Command::new("kill")
-            .args(["-TERM", "--", &format!("-{pid}")])
-            .status();
-
-        thread::sleep(Duration::from_millis(100));
-
-        let _ = Command::new("kill")
-            .args(["-KILL", "--", &format!("-{pid}")])
-            .status();
-    }
-
-    #[cfg(not(unix))]
-    {
-        let _ = child.kill();
+// Stops the build's process group after a timeout, the timeout result stands either way
+fn stop_tree(child: &mut std::process::Child) {
+    if let Err(message) = process_group::stop_child_group(child) {
+        eprintln!("warning: the build could not be stopped completely, {message}");
     }
 }
 

@@ -7,7 +7,9 @@ use std::{
 
 use crate::config::env::Env;
 use crate::features::v1::benchmark::{
+    live::RunControl,
     model::BuildCommand,
+    process_group,
     readiness::{self, ReadinessCheck, ReadinessSettings},
 };
 
@@ -40,6 +42,8 @@ pub enum ReadyOutcome {
     Exited(Option<i32>),
     // Readiness was not reached within the timeout
     TimedOut,
+    // A cancel request ended the wait, the process is still running
+    Cancelled,
 }
 
 pub struct TargetProcess {
@@ -87,7 +91,23 @@ impl TargetProcess {
         env: &Env,
         timeout: Duration,
     ) -> Result<ReadyOutcome, String> {
+        self.wait_until_ready_with_control(settings, env, timeout, &RunControl::default())
+    }
+
+    // Same wait, ended early by a cancel request. Each probe is capped at about 200 ms and the
+    // pause between probes is 50 ms, so a request is seen within about 250 ms.
+    pub fn wait_until_ready_with_control(
+        &mut self,
+        settings: &ReadinessSettings,
+        env: &Env,
+        timeout: Duration,
+        control: &RunControl,
+    ) -> Result<ReadyOutcome, String> {
         let outcome = loop {
+            if control.is_cancel_requested() {
+                break ReadyOutcome::Cancelled;
+            }
+
             match readiness::check(settings, env) {
                 ReadinessCheck::Ready => break ReadyOutcome::Ready,
                 ReadinessCheck::Rejected => break ReadyOutcome::Rejected,
@@ -128,16 +148,24 @@ impl TargetProcess {
         self.ready_elapsed.unwrap_or_else(|| self.started.elapsed())
     }
 
-    // Safe to call more than once, only the first call terminates
+    // Safe to call more than once, only the first call terminates. Best effort: a group that
+    // could not be stopped is reported on stderr and the benchmark result is not changed by it.
     pub fn shutdown(&mut self) {
+        if let Err(message) = self.shutdown_verified() {
+            eprintln!("warning: the target could not be stopped completely, {message}");
+        }
+    }
+
+    // Stops the whole process group and checks that nothing of it is left running. Only the
+    // first call acts, later calls answer Ok.
+    pub fn shutdown_verified(&mut self) -> Result<(), String> {
         if self.shut_down {
-            return;
+            return Ok(());
         }
 
         self.shut_down = true;
 
-        terminate_process_tree(&mut self.child);
-        let _ = self.child.wait();
+        process_group::stop_child_group(&mut self.child)
     }
 }
 
@@ -187,27 +215,5 @@ fn spawn_start_process(command: &BuildCommand, working_directory: &Path) -> Resu
         process
             .spawn()
             .map_err(|error| format!("Failed to spawn startup command: {error}"))
-    }
-}
-
-fn terminate_process_tree(child: &mut Child) {
-    #[cfg(unix)]
-    {
-        let pid = child.id().to_string();
-
-        let _ = Command::new("kill")
-            .args(["-TERM", "--", &format!("-{pid}")])
-            .status();
-
-        thread::sleep(Duration::from_millis(100));
-
-        let _ = Command::new("kill")
-            .args(["-KILL", "--", &format!("-{pid}")])
-            .status();
-    }
-
-    #[cfg(not(unix))]
-    {
-        let _ = child.kill();
     }
 }

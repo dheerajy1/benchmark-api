@@ -186,10 +186,7 @@ async fn the_run_id_exists_before_the_run_finishes_and_the_first_event_is_run_ac
     assert_eq!(replay.status, RunStatus::Running);
     assert_eq!(replay.events[0].seq, 1);
     assert_eq!(replay.events[0].kind, kind::RUN_ACCEPTED);
-    assert_eq!(
-        replay.events[0].data["capabilities"]["cancel"],
-        json!(false)
-    );
+    assert_eq!(replay.events[0].data["capabilities"]["cancel"], json!(true));
     assert_eq!(
         replay.events[0].data["plan"],
         json!({ "startup": false, "workload": null })

@@ -11,6 +11,8 @@ pub enum BenchmarkError {
     InvalidPath(String),
     // Failure while running the benchmark itself
     Internal(String),
+    // The run was stopped on request, only a live run can be cancelled
+    Cancelled,
 }
 
 impl fmt::Display for BenchmarkError {
@@ -19,6 +21,7 @@ impl fmt::Display for BenchmarkError {
             BenchmarkError::Validation(message)
             | BenchmarkError::InvalidPath(message)
             | BenchmarkError::Internal(message) => formatter.write_str(message),
+            BenchmarkError::Cancelled => formatter.write_str("The benchmark was cancelled."),
         }
     }
 }
@@ -38,8 +41,18 @@ impl From<BenchmarkError> for ApiError {
             BenchmarkError::Validation(_) => ErrorCode::ValidationError,
             BenchmarkError::InvalidPath(_) => ErrorCode::BadRequest,
             BenchmarkError::Internal(_) => ErrorCode::InternalServerError,
+            BenchmarkError::Cancelled => ErrorCode::Conflict,
         };
 
         ApiError::new(code, error.to_string())
+    }
+}
+
+impl From<super::stop::Stop> for BenchmarkError {
+    fn from(stop: super::stop::Stop) -> Self {
+        match stop {
+            super::stop::Stop::Cancelled => BenchmarkError::Cancelled,
+            super::stop::Stop::Failed(message) => BenchmarkError::Internal(message),
+        }
     }
 }

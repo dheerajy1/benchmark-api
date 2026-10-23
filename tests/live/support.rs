@@ -3,7 +3,7 @@ use std::{
     path::Path,
     process::Command,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread,
@@ -21,6 +21,13 @@ use benchmark_api::{
         error::BenchmarkError,
         live::{LiveRuns, RunContext, RunEntry, RunExecutor, RunPermit, RunSlot, Stage},
         model::{BenchmarkRequest, BenchmarkResult},
+    },
+    persistence::{
+        history::SummaryQuery,
+        repository::{
+            BenchmarkRepository, CountFuture, GetFuture, ListFuture, PersistFuture, RunsFuture,
+            TrendsFuture,
+        },
     },
 };
 use serde_json::{Value, json};
@@ -433,4 +440,143 @@ pub fn post_to(path: &str, body: &str) -> Request<Body> {
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_string()))
         .unwrap()
+}
+
+// Runs until the gate opens, and stops as soon as cancellation is requested
+pub struct CancellableExecutor {
+    pub gate: Arc<AtomicBool>,
+}
+
+impl RunExecutor for CancellableExecutor {
+    fn execute(
+        &self,
+        _request: &BenchmarkRequest,
+        _target: &Path,
+        _env: &Env,
+        run_id: Uuid,
+        ctx: &RunContext,
+        _permit: &RunPermit,
+    ) -> Result<BenchmarkResult, BenchmarkError> {
+        ctx.stage_started(Stage::Build);
+
+        loop {
+            if ctx.control().is_cancel_requested() {
+                return Err(BenchmarkError::Cancelled);
+            }
+
+            if self.gate.load(Ordering::SeqCst) {
+                return Ok(comparison_sample::result(run_id));
+            }
+
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+}
+
+// Never looks at the cancel request, finishes normally when the gate opens
+pub struct CancelIgnoringExecutor {
+    pub gate: Arc<AtomicBool>,
+}
+
+impl RunExecutor for CancelIgnoringExecutor {
+    fn execute(
+        &self,
+        _request: &BenchmarkRequest,
+        _target: &Path,
+        _env: &Env,
+        run_id: Uuid,
+        ctx: &RunContext,
+        _permit: &RunPermit,
+    ) -> Result<BenchmarkResult, BenchmarkError> {
+        ctx.stage_started(Stage::Build);
+
+        while !self.gate.load(Ordering::SeqCst) {
+            thread::sleep(Duration::from_millis(2));
+        }
+
+        Ok(comparison_sample::result(run_id))
+    }
+}
+
+// Works for a fixed time, then succeeds or fails, whatever was requested meanwhile
+pub struct TimedExecutor {
+    pub delay: Duration,
+    pub fail: bool,
+}
+
+impl RunExecutor for TimedExecutor {
+    fn execute(
+        &self,
+        _request: &BenchmarkRequest,
+        _target: &Path,
+        _env: &Env,
+        run_id: Uuid,
+        ctx: &RunContext,
+        _permit: &RunPermit,
+    ) -> Result<BenchmarkResult, BenchmarkError> {
+        ctx.stage_started(Stage::Build);
+
+        thread::sleep(self.delay);
+
+        if self.fail {
+            Err(BenchmarkError::Internal("boom".to_string()))
+        } else {
+            Ok(comparison_sample::result(run_id))
+        }
+    }
+}
+
+pub fn is_terminal_kind(kind: &str) -> bool {
+    matches!(kind, "run.completed" | "run.failed" | "run.cancelled")
+}
+
+// A repository whose save takes a while, so there is a window while a run is saving
+pub struct SlowRepository {
+    delay: Duration,
+    saved: Mutex<Vec<Uuid>>,
+}
+
+impl SlowRepository {
+    pub fn new(delay: Duration) -> Self {
+        Self {
+            delay,
+            saved: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn saved_run_ids(&self) -> Vec<Uuid> {
+        self.saved.lock().unwrap().clone()
+    }
+}
+
+impl BenchmarkRepository for SlowRepository {
+    fn save<'a>(&'a self, result: &'a BenchmarkResult) -> PersistFuture<'a> {
+        Box::pin(async move {
+            tokio::time::sleep(self.delay).await;
+
+            self.saved.lock().unwrap().push(result.run_id);
+
+            Ok(())
+        })
+    }
+
+    fn list_summaries<'a>(&'a self, _query: &'a SummaryQuery) -> ListFuture<'a> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn get_runs<'a>(&'a self, _run_ids: &'a [Uuid]) -> RunsFuture<'a> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn get_by_run_id<'a>(&'a self, _run_id: Uuid) -> GetFuture<'a> {
+        Box::pin(async { Ok(None) })
+    }
+
+    fn count_runs<'a>(&'a self) -> CountFuture<'a> {
+        Box::pin(async { Ok(0) })
+    }
+
+    fn list_trends<'a>(&'a self, _limit: i64) -> TrendsFuture<'a> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
 }

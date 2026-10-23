@@ -9,6 +9,7 @@ use super::{
         startup_time::{self, StartupPlan, StartupPreparation},
     },
     model::{BenchmarkRequest, Cpu, HttpLatency, Memory, StartupTime},
+    stop::Stop,
     target_process::TargetProcess,
     workload::plan::{DEFAULT_REQUEST_TIMEOUT, WorkloadPlan},
     workload_phase,
@@ -52,17 +53,17 @@ pub fn run(
     request: &BenchmarkRequest,
     env: &Env,
 ) -> Result<RuntimeMetrics, String> {
-    run_observed(target, runtime, request, env, &RunContext::noop())
+    run_observed(target, runtime, request, env, &RunContext::noop()).map_err(Stop::into_message)
 }
 
-// Same run, reporting its progress to the context
+// Same run, reporting its progress to the context and stopping early on a cancel request
 pub fn run_observed(
     target: &Path,
     runtime: Option<&str>,
     request: &BenchmarkRequest,
     env: &Env,
     ctx: &RunContext,
-) -> Result<RuntimeMetrics, String> {
+) -> Result<RuntimeMetrics, Stop> {
     run_with_config_observed(
         target,
         runtime,
@@ -82,6 +83,7 @@ pub fn run_with_config(
     config: &RuntimeConfig,
 ) -> Result<RuntimeMetrics, String> {
     run_with_config_observed(target, runtime, request, env, config, &RunContext::noop())
+        .map_err(Stop::into_message)
 }
 
 pub fn run_with_config_observed(
@@ -91,7 +93,7 @@ pub fn run_with_config_observed(
     env: &Env,
     config: &RuntimeConfig,
     ctx: &RunContext,
-) -> Result<RuntimeMetrics, String> {
+) -> Result<RuntimeMetrics, Stop> {
     let plan = match startup_time::prepare_with_startup(target, runtime, request.startup.as_ref())?
     {
         StartupPreparation::Skipped(result) => {
@@ -112,14 +114,39 @@ pub fn run_with_config_observed(
         StartupPreparation::Launch(plan) => plan,
     };
 
+    if ctx.control().is_cancel_requested() {
+        return Err(Stop::Cancelled);
+    }
+
     let mut process = TargetProcess::start(&plan.command, &plan.working_directory)?;
 
     let result = run_phases(&mut process, plan, request, env, config, ctx);
 
-    // Shutdown happens exactly once, on success and on every error path
-    process.shutdown();
+    // Shutdown happens exactly once, on success and on every error path, and the whole process
+    // group is checked to be gone
+    let shutdown = process.shutdown_verified();
 
-    result
+    settle(result, shutdown)
+}
+
+// Combines how the phases ended with how the target was stopped. A cancelled run is only
+// reported as cancelled when the target is really gone. For any other ending a target that
+// could not be stopped completely is reported on stderr and the result stands.
+pub fn settle(
+    result: Result<RuntimeMetrics, Stop>,
+    shutdown: Result<(), String>,
+) -> Result<RuntimeMetrics, Stop> {
+    match (result, shutdown) {
+        (Err(Stop::Cancelled), Err(message)) => Err(Stop::Failed(format!(
+            "The run was cancelled but the target could not be stopped completely: {message}"
+        ))),
+        (result, Err(message)) => {
+            eprintln!("warning: the target could not be stopped completely, {message}");
+
+            result
+        }
+        (result, Ok(())) => result,
+    }
 }
 
 fn run_phases(
@@ -129,12 +156,18 @@ fn run_phases(
     env: &Env,
     config: &RuntimeConfig,
     ctx: &RunContext,
-) -> Result<RuntimeMetrics, String> {
+) -> Result<RuntimeMetrics, Stop> {
     let host = plan.readiness.host.clone();
     let port = plan.readiness.port;
 
     ctx.stage_started(Stage::Startup);
-    let startup = startup_time::observe(plan, process, env, startup_time::DEFAULT_TIMEOUT)?;
+    let startup = startup_time::observe_cancellable(
+        plan,
+        process,
+        env,
+        startup_time::DEFAULT_TIMEOUT,
+        ctx.control(),
+    )?;
     ctx.measurement(Metric::StartupTime, &startup);
     ctx.stage_completed(Stage::Startup, &startup.status, startup.duration_ms);
 
@@ -152,6 +185,10 @@ fn run_phases(
     };
 
     let workload_plan = WorkloadPlan::new(workload, &host, port, config.request_timeout)?;
+
+    if ctx.control().is_cancel_requested() {
+        return Err(Stop::Cancelled);
+    }
 
     let phase = workload_phase::run_observed(process, &workload_plan, &config.memory, ctx)?;
 

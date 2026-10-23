@@ -20,6 +20,7 @@ pub enum RunStatus {
     Running,
     Completed,
     Failed,
+    Cancelled,
 }
 
 impl RunStatus {
@@ -28,6 +29,7 @@ impl RunStatus {
             RunStatus::Running => "running",
             RunStatus::Completed => "completed",
             RunStatus::Failed => "failed",
+            RunStatus::Cancelled => "cancelled",
         }
     }
 }
@@ -143,10 +145,10 @@ impl EventLog {
         self.last_seq = seq;
 
         if terminal {
-            self.status = if event_kind == kind::RUN_COMPLETED {
-                RunStatus::Completed
-            } else {
-                RunStatus::Failed
+            self.status = match event_kind {
+                kind::RUN_COMPLETED => RunStatus::Completed,
+                kind::RUN_CANCELLED => RunStatus::Cancelled,
+                _ => RunStatus::Failed,
             };
             self.terminal_at = Some(Instant::now());
         }

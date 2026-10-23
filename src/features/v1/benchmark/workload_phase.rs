@@ -1,4 +1,4 @@
-use std::{sync::Arc, thread, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use super::{
     live::{LiveGauges, RunContext, SAMPLE_INTERVAL, Stage, gauges::build_sample, skip},
@@ -8,6 +8,8 @@ use super::{
         memory::{self, MemoryConfig},
     },
     model::{Cpu, HttpLatency, Memory},
+    process_group,
+    stop::{Stop, sleep_unless_cancelled},
     target_process::TargetProcess,
     workload::{executor, plan::WorkloadPlan},
 };
@@ -24,28 +26,35 @@ pub fn run(
     plan: &WorkloadPlan,
     config: &MemoryConfig,
 ) -> Result<PhaseOutput, String> {
-    run_observed(process, plan, config, &RunContext::noop())
+    run_observed(process, plan, config, &RunContext::noop()).map_err(Stop::into_message)
 }
 
-// Same phase, reporting the baseline and workload stages to the context
+// Same phase, reporting the baseline and workload stages to the context and stopping early on a
+// cancel request. The caller shuts the target down and checks that it is gone.
 pub fn run_observed(
     process: &mut TargetProcess,
     plan: &WorkloadPlan,
     config: &MemoryConfig,
     ctx: &RunContext,
-) -> Result<PhaseOutput, String> {
+) -> Result<PhaseOutput, Stop> {
     let group_id = process.process_group_id();
 
     ctx.stage_started(Stage::Baseline);
 
     // Stabilization is waited once and shared by both metrics
-    thread::sleep(config.stabilization);
+    if sleep_unless_cancelled(config.stabilization, ctx.control()) {
+        return Err(Stop::Cancelled);
+    }
 
     let cpu_baseline = match baseline::measure_baseline_for_group(config.sample_interval, group_id)
     {
         Ok(value) => value,
         Err(error) => return unavailable_or_error(process, error, ctx),
     };
+
+    if ctx.control().is_cancel_requested() {
+        return Err(Stop::Cancelled);
+    }
 
     // Stabilization already happened, so the memory baseline is read right away
     let memory_config = MemoryConfig {
@@ -64,6 +73,13 @@ pub fn run_observed(
             Err(error) => return unavailable_or_error(process, error, ctx),
         };
 
+    if ctx.control().is_cancel_requested() {
+        // The memory sampler must not outlive this phase
+        let _ = memory_session.finish();
+
+        return Err(Stop::Cancelled);
+    }
+
     let cpu_session = match session::begin_for_group_observed(
         cpu_baseline,
         config.sample_interval,
@@ -79,6 +95,13 @@ pub fn run_observed(
         }
     };
 
+    if ctx.control().is_cancel_requested() {
+        let _ = cpu_session.finish();
+        let _ = memory_session.finish();
+
+        return Err(Stop::Cancelled);
+    }
+
     ctx.baseline_measured(memory_session.baseline_bytes(), cpu_baseline);
     ctx.stage_completed(Stage::Baseline, "success", None);
 
@@ -90,7 +113,7 @@ pub fn run_observed(
                 ctx.sample(build_sample(gauges, plan.limit, elapsed));
             };
 
-            executor::execute_observed(
+            executor::execute_cancellable(
                 plan,
                 || process.is_running(),
                 Some(executor::Observer {
@@ -98,9 +121,17 @@ pub fn run_observed(
                     interval: SAMPLE_INTERVAL,
                     on_tick: &mut emit_sample,
                 }),
+                ctx.control(),
+                || process_group::kill_now(group_id),
             )
         }
-        None => executor::execute(plan, || process.is_running()),
+        None => executor::execute_cancellable(
+            plan,
+            || process.is_running(),
+            None,
+            ctx.control(),
+            || process_group::kill_now(group_id),
+        ),
     };
 
     // Observers are always stopped, even when the workload failed
@@ -131,9 +162,9 @@ fn unavailable_or_error(
     process: &mut TargetProcess,
     error: String,
     ctx: &RunContext,
-) -> Result<PhaseOutput, String> {
+) -> Result<PhaseOutput, Stop> {
     if process.is_running() {
-        return Err(error);
+        return Err(Stop::Failed(error));
     }
 
     ctx.stage_completed(Stage::Baseline, skip::TARGET_EXITED, None);

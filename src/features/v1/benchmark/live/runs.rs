@@ -1,5 +1,7 @@
 use std::{
     any::Any,
+    fs::File,
+    io::Read,
     panic::{AssertUnwindSafe, catch_unwind},
     path::{Path, PathBuf},
     sync::Arc,
@@ -65,6 +67,8 @@ impl RunExecutor for ServiceExecutor {
 pub struct Accepted {
     pub run_id: Uuid,
     pub entry: Arc<RunEntry>,
+    // The right to cancel this run, shown once to whoever started it
+    pub cancel_token: String,
 }
 
 // The live submission path: validates, takes the execution slot, registers the run and
@@ -151,13 +155,16 @@ impl LiveRuns {
         let target = service::prepare(&request).map_err(SubmitError::Invalid)?;
 
         let run_id = Uuid::now_v7();
+        let cancel_token = new_cancel_token().map_err(SubmitError::Internal)?;
 
         let permit = self
             .slot
             .try_acquire(RunKind::Live, Some(run_id))
             .map_err(SubmitError::Busy)?;
 
-        let entry = self.registry.register(run_id);
+        let entry = self
+            .registry
+            .register_with_token(run_id, cancel_token.clone());
 
         let _ = entry.append(
             kind::RUN_ACCEPTED,
@@ -165,7 +172,7 @@ impl LiveRuns {
                 "target": { "path": target.display().to_string() },
                 "created_at": format_timestamp(SystemTime::now()),
                 "plan": plan_of(&request),
-                "capabilities": { "cancel": false },
+                "capabilities": { "cancel": true },
             }),
         );
 
@@ -183,8 +190,23 @@ impl LiveRuns {
 
         tokio::spawn(supervisor.run(request, target, ownership));
 
-        Ok(Accepted { run_id, entry })
+        Ok(Accepted {
+            run_id,
+            entry,
+            cancel_token,
+        })
     }
+}
+
+// 128 random bits from the operating system, as 32 hex digits
+fn new_cancel_token() -> Result<String, String> {
+    let mut bytes = [0u8; 16];
+
+    File::open("/dev/urandom")
+        .and_then(|mut file| file.read_exact(&mut bytes))
+        .map_err(|error| format!("Could not create a cancel token: {error}"))?;
+
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 fn plan_of(request: &BenchmarkRequest) -> Value {
@@ -244,7 +266,11 @@ impl Supervisor {
     // same reason: the supervisor still holds the permit when it records the failure.
     async fn run(self, request: BenchmarkRequest, target: PathBuf, mut ownership: RunOwnership) {
         let entry = Arc::clone(&ownership.entry);
-        let ctx = RunContext::new(Arc::new(EntrySink::new(Arc::clone(&entry))));
+        // The execution shares the control of the run, so a cancel request reaches it
+        let ctx = RunContext::with_control(
+            Arc::new(EntrySink::new(Arc::clone(&entry))),
+            entry.control().clone(),
+        );
 
         let Some(permit) = ownership.permit.take() else {
             return;
@@ -282,12 +308,25 @@ impl Supervisor {
                             panic_message(payload.as_ref())
                         ),
                     ),
+                    // The execution stopped because it was asked to, so its work is over
+                    Ok(Err(BenchmarkError::Cancelled)) => cancelled(&entry),
+                    // A failure that happened on its own is reported as it happened, even
+                    // when a cancel request arrived at the same time
                     Ok(Err(error)) => {
                         let code = ApiError::from(error.clone()).code().as_str();
 
                         fail(&entry, code, error.to_string());
                     }
-                    Ok(Ok(result)) => self.persist(&entry, &ctx, result).await,
+                    Ok(Ok(result)) => {
+                        // The benchmark finished. If a cancel request got there first the
+                        // result is thrown away and nothing is saved, otherwise cancelling is
+                        // refused from now on and the result is saved.
+                        if entry.control().begin_finalizing() {
+                            self.persist(&entry, &ctx, result).await
+                        } else {
+                            cancelled(&entry)
+                        }
+                    }
                 }
             }
         }
@@ -329,6 +368,17 @@ fn fail(entry: &RunEntry, code: &str, message: String) {
             "stage": stage,
             "persisted": false,
         }),
+    );
+}
+
+// Records that the run stopped on request. Only called once the execution has returned, so its
+// work and its cleanup are over.
+fn cancelled(entry: &RunEntry) {
+    let stage = entry.current_stage();
+
+    let _ = entry.append(
+        kind::RUN_CANCELLED,
+        json!({ "stage": stage, "persisted": false }),
     );
 }
 

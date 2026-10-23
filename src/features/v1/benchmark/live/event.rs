@@ -15,7 +15,9 @@ pub mod kind {
     pub const SAMPLE: &str = "sample";
     pub const RUN_COMPLETED: &str = "run.completed";
     pub const RUN_FAILED: &str = "run.failed";
-    // Reserved for cancellation, never emitted in v1
+    // Cancellation was requested, the run is still stopping
+    pub const RUN_CANCELLING: &str = "run.cancelling";
+    // The run stopped on request and its work and cleanup are done
     pub const RUN_CANCELLED: &str = "run.cancelled";
 }
 

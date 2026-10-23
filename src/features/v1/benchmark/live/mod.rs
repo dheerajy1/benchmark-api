@@ -1,3 +1,4 @@
+pub mod control;
 pub mod error;
 pub mod event;
 pub mod gauges;
@@ -9,10 +10,11 @@ pub mod sink;
 pub mod slot;
 pub mod sockets;
 
+pub use control::{CancelRequest, RunControl};
 pub use error::SubmitError;
 pub use gauges::{LiveGauges, SAMPLE_INTERVAL};
-pub use registry::{RunEntry, RunRegistry};
+pub use registry::{CancelOutcome, RunEntry, RunRegistry};
 pub use runs::{Accepted, LiveRuns, RunExecutor, ServiceExecutor};
-pub use sink::{Metric, ProgressSink, RunContext, RunControl, Stage, skip};
+pub use sink::{Metric, ProgressSink, RunContext, Stage, skip};
 pub use slot::{ActiveRun, RunKind, RunPermit, RunSlot};
 pub use sockets::{SocketLimits, SocketPermit, WsConfig};

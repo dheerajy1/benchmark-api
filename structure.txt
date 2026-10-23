@@ -26,6 +26,7 @@
 │   ├── development.md
 │   ├── execution-guard.md
 │   ├── lifecycle.md
+│   ├── live-run-cancellation.md
 │   ├── live-runs-api.md
 │   ├── live-samples.md
 │   └── postgres/
@@ -65,6 +66,7 @@
 │   │       │   │   └── service.rs
 │   │       │   ├── host.rs
 │   │       │   ├── live/
+│   │       │   │   ├── control.rs
 │   │       │   │   ├── error.rs
 │   │       │   │   ├── event.rs
 │   │       │   │   ├── gauges.rs
@@ -92,10 +94,12 @@
 │   │       │   │   └── startup_time.rs
 │   │       │   ├── mod.rs
 │   │       │   ├── model.rs
+│   │       │   ├── process_group.rs
 │   │       │   ├── readiness.rs
 │   │       │   ├── request.rs
 │   │       │   ├── runtime.rs
 │   │       │   ├── service.rs
+│   │       │   ├── stop.rs
 │   │       │   ├── target_process.rs
 │   │       │   ├── validation.rs
 │   │       │   ├── workload/
@@ -182,10 +186,14 @@
 │   ├── benchmark.rs
 │   ├── legacy_disconnect.rs
 │   ├── live/
+│   │   ├── cancel.rs
+│   │   ├── cancel_http.rs
+│   │   ├── cancel_stages.rs
 │   │   ├── guard_http.rs
 │   │   ├── live_http.rs
 │   │   ├── log.rs
 │   │   ├── overhead.rs
+│   │   ├── process_group.rs
 │   │   ├── registry.rs
 │   │   ├── runs.rs
 │   │   ├── samples.rs
@@ -209,4 +217,4 @@
     └── src/
         └── main.rs
 
-28 directories, 180 files
+28 directories, 188 files

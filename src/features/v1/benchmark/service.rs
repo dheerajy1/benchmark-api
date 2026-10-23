@@ -51,20 +51,30 @@ fn run_core(
     run_id: Uuid,
     ctx: &RunContext,
 ) -> Result<BenchmarkResult, BenchmarkError> {
+    // A cancel request is looked at before every step and inside each long one
+    ctx.check_cancelled()?;
+
     ctx.stage_started(Stage::Discovery);
     let discovery = discovery::discover(target)?;
     ctx.measurement(Metric::Discovery, &discovery);
     ctx.stage_completed(Stage::Discovery, STATUS_SUCCESS, None);
+
+    ctx.check_cancelled()?;
 
     ctx.stage_started(Stage::ArtifactSize);
     let artifact_size = artifact_size::measure(target)?;
     ctx.measurement(Metric::ArtifactSize, &artifact_size);
     ctx.stage_completed(Stage::ArtifactSize, STATUS_SUCCESS, None);
 
+    ctx.check_cancelled()?;
+
     ctx.stage_started(Stage::Build);
-    let build_time = build_time::measure(target, discovery.runtime.as_deref())?;
+    let build_time =
+        build_time::measure_cancellable(target, discovery.runtime.as_deref(), ctx.control())?;
     ctx.measurement(Metric::BuildTime, &build_time);
     ctx.stage_completed(Stage::Build, &build_time.status, build_time.duration_ms);
+
+    ctx.check_cancelled()?;
 
     let runtime_metrics =
         runtime::run_observed(target, discovery.runtime.as_deref(), request, env, ctx)?;

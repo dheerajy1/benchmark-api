@@ -17,6 +17,10 @@ Typical full check:
 cargo fmt && cargo check && cargo test
 ```
 
+```bash
+cargo test 2>&1 | grep -E "Finished|Running|test result|FAILED|panicked|error|Doc-tests"
+```
+
 ## Tests
 
 Tests live in `tests/`, never next to production code.
@@ -30,6 +34,16 @@ The PostgreSQL tests are skipped unless `TEST_DATABASE_URL` is set. Pass it on t
 
 ```bash
 TEST_DATABASE_URL=postgres://benchmark_api_service:<password>@localhost:5432/benchmark_api_db cargo test --test persistence
+```
+
+```bash
+TEST_DATABASE_URL="$(grep '^DATABASE_URL=' .env.development | cut -d= -f2-)" cargo test --test persistence 2>&1 | grep -E "test result|FAILED|panicked"
+```
+
+```bash
+cargo test --test live overhead -- --ignored --nocapture --test-threads=1 2>&1 | grep -E "test result|FAILED|panicked"
+
+cargo test --test legacy_disconnect -- --ignored --nocapture --test-threads=1 2>&1 | grep -E "PHASE0|test result|FAILED|panicked at"
 ```
 
 Each test creates its own throwaway schema named `test_<uuid>` and drops it afterwards. A test that panics leaves its schema behind. Remove leftovers:

@@ -134,3 +134,21 @@ fn an_evicted_run_stays_readable_for_whoever_still_holds_it() {
     assert!(registry.get(run_id).is_none());
     assert_eq!(entry.replay(0).events.len(), 1);
 }
+
+#[test]
+fn a_cancelled_run_expires_like_any_finished_run_and_an_active_one_does_not() {
+    let registry = RunRegistry::with_limits(Duration::from_secs(600), 20, 10);
+
+    let cancelled = registry.register(Uuid::now_v7());
+    let active = registry.register(Uuid::now_v7());
+
+    cancelled.append(kind::RUN_CANCELLING, json!({})).unwrap();
+    cancelled.append(kind::RUN_CANCELLED, json!({})).unwrap();
+
+    assert_eq!(cancelled.status(), RunStatus::Cancelled);
+
+    registry.evict_at(Instant::now() + Duration::from_secs(601));
+
+    assert!(registry.get(cancelled.run_id()).is_none());
+    assert!(registry.get(active.run_id()).is_some());
+}
