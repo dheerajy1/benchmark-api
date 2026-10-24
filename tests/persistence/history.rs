@@ -1,3 +1,4 @@
+use super::sample::configuration;
 use benchmark_api::{
     features::v1::benchmark::{
         metrics::artifact_size::format_size,
@@ -93,7 +94,7 @@ async fn a_summary_carries_the_stored_metrics() {
     let repository = PgBenchmarkRepository::new(database.pool.clone());
     let result = sample::result();
 
-    repository.save(&result).await.unwrap();
+    repository.save(&result, &configuration()).await.unwrap();
 
     let rows = repository.list_summaries(&query(21)).await.unwrap();
 
@@ -128,7 +129,10 @@ async fn runs_are_listed_newest_first() {
     let middle = v7_at(2000, 2);
 
     for id in [middle, oldest, newest] {
-        repository.save(&run(id, "/a", Some("bun"))).await.unwrap();
+        repository
+            .save(&run(id, "/a", Some("bun")), &configuration())
+            .await
+            .unwrap();
     }
 
     let rows = repository.list_summaries(&query(21)).await.unwrap();
@@ -149,7 +153,10 @@ async fn the_limit_is_applied_by_the_database() {
     for number in 1..=5 {
         let id = v7_at(number * 1000, number);
 
-        repository.save(&run(id, "/a", Some("bun"))).await.unwrap();
+        repository
+            .save(&run(id, "/a", Some("bun")), &configuration())
+            .await
+            .unwrap();
     }
 
     let rows = repository.list_summaries(&query(2)).await.unwrap();
@@ -171,12 +178,18 @@ async fn the_runtime_filter_uses_the_lookup_code() {
     let node = v7_at(2000, 2);
     let none = v7_at(3000, 3);
 
-    repository.save(&run(bun, "/a", Some("bun"))).await.unwrap();
     repository
-        .save(&run(node, "/a", Some("node")))
+        .save(&run(bun, "/a", Some("bun")), &configuration())
         .await
         .unwrap();
-    repository.save(&run(none, "/a", None)).await.unwrap();
+    repository
+        .save(&run(node, "/a", Some("node")), &configuration())
+        .await
+        .unwrap();
+    repository
+        .save(&run(none, "/a", None), &configuration())
+        .await
+        .unwrap();
 
     let mut filtered = query(21);
 
@@ -225,15 +238,21 @@ async fn the_target_path_filter_is_an_exact_match() {
     let exact = v7_at(1000, 1);
 
     repository
-        .save(&run(exact, "/projects/api", Some("bun")))
+        .save(&run(exact, "/projects/api", Some("bun")), &configuration())
         .await
         .unwrap();
     repository
-        .save(&run(v7_at(2000, 2), "/projects/api/nested", Some("bun")))
+        .save(
+            &run(v7_at(2000, 2), "/projects/api/nested", Some("bun")),
+            &configuration(),
+        )
         .await
         .unwrap();
     repository
-        .save(&run(v7_at(3000, 3), "/projects", Some("bun")))
+        .save(
+            &run(v7_at(3000, 3), "/projects", Some("bun")),
+            &configuration(),
+        )
         .await
         .unwrap();
 
@@ -259,15 +278,15 @@ async fn runtime_and_target_path_filters_combine() {
     let both = v7_at(1000, 1);
 
     repository
-        .save(&run(both, "/a", Some("bun")))
+        .save(&run(both, "/a", Some("bun")), &configuration())
         .await
         .unwrap();
     repository
-        .save(&run(v7_at(2000, 2), "/a", Some("node")))
+        .save(&run(v7_at(2000, 2), "/a", Some("node")), &configuration())
         .await
         .unwrap();
     repository
-        .save(&run(v7_at(3000, 3), "/b", Some("bun")))
+        .save(&run(v7_at(3000, 3), "/b", Some("bun")), &configuration())
         .await
         .unwrap();
 
@@ -296,7 +315,10 @@ async fn the_cursor_pages_through_every_run_once() {
     for number in 1..=5 {
         let id = v7_at(number * 1000, number);
 
-        repository.save(&run(id, "/a", Some("bun"))).await.unwrap();
+        repository
+            .save(&run(id, "/a", Some("bun")), &configuration())
+            .await
+            .unwrap();
 
         expected.insert(0, id);
     }
@@ -338,19 +360,19 @@ async fn filters_apply_before_the_cursor() {
     let bun_new = v7_at(4000, 4);
 
     repository
-        .save(&run(bun_old, "/a", Some("bun")))
+        .save(&run(bun_old, "/a", Some("bun")), &configuration())
         .await
         .unwrap();
     repository
-        .save(&run(v7_at(2000, 2), "/a", Some("node")))
+        .save(&run(v7_at(2000, 2), "/a", Some("node")), &configuration())
         .await
         .unwrap();
     repository
-        .save(&run(v7_at(3000, 3), "/a", Some("node")))
+        .save(&run(v7_at(3000, 3), "/a", Some("node")), &configuration())
         .await
         .unwrap();
     repository
-        .save(&run(bun_new, "/a", Some("bun")))
+        .save(&run(bun_new, "/a", Some("bun")), &configuration())
         .await
         .unwrap();
 
@@ -387,7 +409,10 @@ async fn runs_with_the_same_created_at_are_ordered_by_id() {
     let high = v7_at(5000, 3);
 
     for id in [middle, low, high] {
-        repository.save(&run(id, "/a", Some("bun"))).await.unwrap();
+        repository
+            .save(&run(id, "/a", Some("bun")), &configuration())
+            .await
+            .unwrap();
     }
 
     let all = repository.list_summaries(&query(21)).await.unwrap();
@@ -427,7 +452,7 @@ async fn a_run_without_runtime_or_metrics_has_null_summary_values() {
     let repository = PgBenchmarkRepository::new(database.pool.clone());
     let result = sample::skipped_result();
 
-    repository.save(&result).await.unwrap();
+    repository.save(&result, &configuration()).await.unwrap();
 
     let rows = repository.list_summaries(&query(21)).await.unwrap();
 
@@ -455,7 +480,7 @@ async fn a_stored_run_is_rebuilt_exactly_like_the_post_result() {
     let repository = PgBenchmarkRepository::new(database.pool.clone());
     let posted = as_posted(sample::result());
 
-    repository.save(&posted).await.unwrap();
+    repository.save(&posted, &configuration()).await.unwrap();
 
     let fetched = repository
         .get_by_run_id(posted.run_id)
@@ -480,7 +505,7 @@ async fn a_run_with_nullable_runtime_and_skipped_metrics_is_rebuilt_exactly() {
     let repository = PgBenchmarkRepository::new(database.pool.clone());
     let posted = as_posted(sample::skipped_result());
 
-    repository.save(&posted).await.unwrap();
+    repository.save(&posted, &configuration()).await.unwrap();
 
     let fetched = repository
         .get_by_run_id(posted.run_id)

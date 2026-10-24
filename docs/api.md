@@ -278,3 +278,17 @@ Every `{}` above is a metric object with the five fields `baseline_value`, `comp
 | storage failure | 500 `INTERNAL_SERVER_ERROR` |
 
 Runs of different targets or runtimes can be compared, each side shows its own target and runtime.
+## GET /benchmarks/{run_id}/config
+
+Returns the configuration a stored run executed with. `recorded` is `false` for runs stored before configurations were recorded, and `configuration` is then `null`. An unknown run returns `404 NOT_FOUND`, and a malformed run id returns `400 BAD_REQUEST`.
+
+```json
+{ "success": true, "httpCode": 200, "message": "Run configuration retrieved.",
+  "data": { "run_id": "...", "recorded": true, "configuration": { "source": "target", "...": "..." } } }
+```
+
+Header names only are returned, never values. See [saved-targets.md](saved-targets.md) for the configuration shape.
+
+## GET /benchmarks/configurations?limit=
+
+The newest runs with their configuration, newest first. `limit` defaults to 50 and must be between 1 and 200, otherwise `400 VALIDATION_ERROR`. Each item has `run_id`, `created_at`, `recorded` and `configuration`.

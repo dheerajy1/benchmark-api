@@ -1,3 +1,4 @@
+pub mod config;
 pub mod cursor;
 pub mod error;
 pub mod handler;

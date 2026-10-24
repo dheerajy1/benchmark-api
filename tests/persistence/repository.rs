@@ -1,3 +1,4 @@
+use super::sample::configuration;
 use benchmark_api::persistence::{
     error::PersistenceError,
     postgres::{mapping::run_created_at, repository::PgBenchmarkRepository},
@@ -31,7 +32,7 @@ async fn saves_a_complete_result_across_every_table() {
     let repository = PgBenchmarkRepository::new(database.pool.clone());
     let result = sample::result();
 
-    repository.save(&result).await.unwrap();
+    repository.save(&result, &configuration()).await.unwrap();
 
     let run_id = result.run_id;
 
@@ -76,7 +77,7 @@ async fn stores_canonical_values() {
     let repository = PgBenchmarkRepository::new(database.pool.clone());
     let result = sample::result();
 
-    repository.save(&result).await.unwrap();
+    repository.save(&result, &configuration()).await.unwrap();
 
     let run_id = result.run_id;
 
@@ -153,7 +154,7 @@ async fn saves_a_run_without_runtime_and_without_workload_metrics() {
     let repository = PgBenchmarkRepository::new(database.pool.clone());
     let result = sample::skipped_result();
 
-    repository.save(&result).await.unwrap();
+    repository.save(&result, &configuration()).await.unwrap();
 
     let run_id = result.run_id;
 
@@ -209,7 +210,10 @@ async fn nothing_is_stored_when_a_late_insert_fails() {
         http_latency.status = "bogus".to_string();
     }
 
-    let error = repository.save(&result).await.unwrap_err();
+    let error = repository
+        .save(&result, &configuration())
+        .await
+        .unwrap_err();
 
     assert_eq!(
         error,
@@ -241,7 +245,10 @@ async fn an_unknown_runtime_is_rejected_and_nothing_is_stored() {
 
     result.discovery.runtime = Some("ruby".to_string());
 
-    let error = repository.save(&result).await.unwrap_err();
+    let error = repository
+        .save(&result, &configuration())
+        .await
+        .unwrap_err();
 
     assert!(matches!(
         error,
@@ -268,9 +275,12 @@ async fn saving_the_same_run_twice_fails_and_keeps_the_first_copy_intact() {
     let repository = PgBenchmarkRepository::new(database.pool.clone());
     let result = sample::result();
 
-    repository.save(&result).await.unwrap();
+    repository.save(&result, &configuration()).await.unwrap();
 
-    let error = repository.save(&result).await.unwrap_err();
+    let error = repository
+        .save(&result, &configuration())
+        .await
+        .unwrap_err();
 
     assert!(matches!(error, PersistenceError::Database(_)));
 

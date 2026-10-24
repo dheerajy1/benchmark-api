@@ -1,3 +1,4 @@
+use super::sample::configuration;
 use benchmark_api::persistence::{
     postgres::repository::PgBenchmarkRepository, repository::BenchmarkRepository,
 };
@@ -42,7 +43,7 @@ async fn a_referenced_runtime_cannot_be_deleted() {
     };
 
     PgBenchmarkRepository::new(database.pool.clone())
-        .save(&sample::result())
+        .save(&sample::result(), &configuration())
         .await
         .unwrap();
 
@@ -65,7 +66,7 @@ async fn a_run_with_children_cannot_be_deleted() {
     let result = sample::result();
 
     PgBenchmarkRepository::new(database.pool.clone())
-        .save(&result)
+        .save(&result, &configuration())
         .await
         .unwrap();
 

@@ -1,3 +1,4 @@
+use super::sample::configuration;
 use benchmark_api::{
     features::v1::comparison::{error::ComparisonError, query::RunIds, service},
     persistence::{postgres::repository::PgBenchmarkRepository, repository::BenchmarkRepository},
@@ -29,7 +30,7 @@ async fn only_the_requested_runs_are_read() {
         let result = sample::result();
 
         stored.push(result.run_id);
-        repository.save(&result).await.unwrap();
+        repository.save(&result, &configuration()).await.unwrap();
     }
 
     let requested = [stored[0], stored[2]];
@@ -54,7 +55,7 @@ async fn an_absent_id_is_missing_from_the_result() {
     let repository = PgBenchmarkRepository::new(database.pool.clone());
     let result = sample::result();
 
-    repository.save(&result).await.unwrap();
+    repository.save(&result, &configuration()).await.unwrap();
 
     let runs = repository
         .get_runs(&[result.run_id, Uuid::now_v7()])
@@ -79,8 +80,8 @@ async fn a_run_read_in_bulk_equals_the_same_run_read_alone() {
     let full = sample::result();
     let skipped = sample::skipped_result();
 
-    repository.save(&full).await.unwrap();
-    repository.save(&skipped).await.unwrap();
+    repository.save(&full, &configuration()).await.unwrap();
+    repository.save(&skipped, &configuration()).await.unwrap();
 
     let runs = repository
         .get_runs(&[full.run_id, skipped.run_id])
@@ -123,8 +124,11 @@ async fn two_stored_runs_are_compared_from_sql() {
     comparison.metrics.memory.as_mut().unwrap().peak.rss_bytes = 36_700_160;
     comparison.metrics.artifact_size.build.bytes = 400;
 
-    repository.save(&baseline).await.unwrap();
-    repository.save(&comparison).await.unwrap();
+    repository.save(&baseline, &configuration()).await.unwrap();
+    repository
+        .save(&comparison, &configuration())
+        .await
+        .unwrap();
 
     let ids = RunIds {
         baseline: baseline.run_id,
@@ -187,8 +191,8 @@ async fn a_skipped_stored_run_compares_with_null_values() {
     let baseline = sample::result();
     let skipped = sample::skipped_result();
 
-    repository.save(&baseline).await.unwrap();
-    repository.save(&skipped).await.unwrap();
+    repository.save(&baseline, &configuration()).await.unwrap();
+    repository.save(&skipped, &configuration()).await.unwrap();
 
     let ids = RunIds {
         baseline: baseline.run_id,
@@ -229,7 +233,7 @@ async fn a_run_missing_from_the_database_is_not_found() {
     let repository = PgBenchmarkRepository::new(database.pool.clone());
     let stored = sample::result();
 
-    repository.save(&stored).await.unwrap();
+    repository.save(&stored, &configuration()).await.unwrap();
 
     let missing = Uuid::now_v7();
 

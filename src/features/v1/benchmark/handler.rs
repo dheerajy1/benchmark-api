@@ -18,6 +18,7 @@ use crate::{
 };
 
 use super::{
+    configuration::RunConfiguration,
     history,
     live::{RunContext, RunKind, SubmitError},
     model::BenchmarkResult,
@@ -31,7 +32,10 @@ async fn benchmark(
     let env = state.env.clone();
 
     // The raw body and the switch are checked before anything is held
-    let ResolvedRun { request, .. } = resolve(&state.policy, incoming)?;
+    let ResolvedRun { request, origin } = resolve(&state.policy, incoming)?;
+
+    // The configuration is captured before the request moves into the benchmark
+    let configuration = RunConfiguration::from_request(&request, &origin);
 
     // Validation comes first and holds nothing, so an invalid request is still a 400
     // while another benchmark is running
@@ -69,12 +73,16 @@ async fn benchmark(
     let result = result?;
 
     // The result is only reported as completed once it is stored in one transaction
-    state.repository.save(&result).await.map_err(|error| {
-        ApiError::new(
-            ErrorCode::InternalServerError,
-            format!("Failed to persist benchmark result: {error}"),
-        )
-    })?;
+    state
+        .repository
+        .save(&result, &configuration)
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                ErrorCode::InternalServerError,
+                format!("Failed to persist benchmark result: {error}"),
+            )
+        })?;
 
     // Released after the result is stored, and on every error path above when the
     // permit goes out of scope
@@ -92,7 +100,15 @@ pub fn router() -> Router<AppState> {
                 .fallback(method_not_allowed),
         )
         .route(
+            "/benchmarks/configurations",
+            get(history::config::list).fallback(method_not_allowed),
+        )
+        .route(
             "/benchmarks/{run_id}",
             get(history::handler::detail).fallback(method_not_allowed),
+        )
+        .route(
+            "/benchmarks/{run_id}/config",
+            get(history::config::detail).fallback(method_not_allowed),
         )
 }

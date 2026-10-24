@@ -15,6 +15,7 @@ use crate::{
     config::env::Env,
     errors::{api_error::ApiError, catalog::ErrorCode},
     features::v1::benchmark::{
+        configuration::RunConfiguration,
         error::BenchmarkError,
         model::{BenchmarkRequest, BenchmarkResult},
         run_origin::RunOrigin,
@@ -198,11 +199,15 @@ impl LiveRuns {
             permit: Some(permit),
         };
 
+        // Captured now, while the request and its origin are still available
+        let configuration = RunConfiguration::from_request(&request, &origin);
+
         let supervisor = Supervisor {
             repository: Arc::clone(&self.repository),
             env: self.env.clone(),
             executor: Arc::clone(&self.executor),
             run_id,
+            configuration,
         };
 
         tokio::spawn(supervisor.run(request, target, ownership));
@@ -273,6 +278,7 @@ struct Supervisor {
     env: Env,
     executor: Arc<dyn RunExecutor>,
     run_id: Uuid,
+    configuration: RunConfiguration,
 }
 
 impl Supervisor {
@@ -353,7 +359,7 @@ impl Supervisor {
     async fn persist(&self, entry: &RunEntry, ctx: &RunContext, result: BenchmarkResult) {
         ctx.stage_started(Stage::Saving);
 
-        match self.repository.save(&result).await {
+        match self.repository.save(&result, &self.configuration).await {
             Ok(()) => {
                 ctx.stage_completed(Stage::Saving, "success", None);
 

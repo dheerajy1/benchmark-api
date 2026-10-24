@@ -7,4 +7,5 @@ pub mod overview;
 pub mod reconstruct;
 pub mod repository;
 pub mod rows;
+pub mod run_configurations;
 pub mod summary;

@@ -1,3 +1,4 @@
+use super::sample::configuration;
 use benchmark_api::{
     features::v1::benchmark::model::BenchmarkResult,
     persistence::{
@@ -67,14 +68,14 @@ async fn every_stored_run_is_counted() {
 
     let repository = PgBenchmarkRepository::new(database.pool.clone());
 
-    repository.save(&run(1)).await.unwrap();
-    repository.save(&run(2)).await.unwrap();
+    repository.save(&run(1), &configuration()).await.unwrap();
+    repository.save(&run(2), &configuration()).await.unwrap();
 
     let mut skipped = sample::skipped_result();
 
     skipped.run_id = id(3);
 
-    repository.save(&skipped).await.unwrap();
+    repository.save(&skipped, &configuration()).await.unwrap();
 
     assert_eq!(repository.count_runs().await.unwrap(), 3);
 
@@ -90,7 +91,10 @@ async fn trends_are_newest_first_and_limited() {
     let repository = PgBenchmarkRepository::new(database.pool.clone());
 
     for number in 1..=5 {
-        repository.save(&run(number)).await.unwrap();
+        repository
+            .save(&run(number), &configuration())
+            .await
+            .unwrap();
     }
 
     let rows = repository.list_trends(3).await.unwrap();
@@ -113,7 +117,7 @@ async fn runs_with_the_same_created_at_are_ordered_by_id() {
 
         result.run_id = v7_at(5000, tail);
 
-        repository.save(&result).await.unwrap();
+        repository.save(&result, &configuration()).await.unwrap();
     }
 
     let rows = repository.list_trends(30).await.unwrap();
@@ -134,7 +138,7 @@ async fn a_complete_successful_run_keeps_every_stored_value() {
 
     let repository = PgBenchmarkRepository::new(database.pool.clone());
 
-    repository.save(&run(1)).await.unwrap();
+    repository.save(&run(1), &configuration()).await.unwrap();
 
     let rows = repository.list_trends(30).await.unwrap();
 
@@ -171,9 +175,9 @@ async fn a_build_that_did_not_succeed_has_no_trend_duration() {
     timed_out.metrics.build_time.status = "timeout".to_string();
     timed_out.metrics.build_time.exit_code = None;
 
-    repository.save(&failed).await.unwrap();
-    repository.save(&timed_out).await.unwrap();
-    repository.save(&run(3)).await.unwrap();
+    repository.save(&failed, &configuration()).await.unwrap();
+    repository.save(&timed_out, &configuration()).await.unwrap();
+    repository.save(&run(3), &configuration()).await.unwrap();
 
     let rows = repository.list_trends(30).await.unwrap();
 
@@ -202,10 +206,10 @@ async fn a_startup_that_did_not_succeed_has_no_trend_duration() {
         result.metrics.startup_time.ready_at = None;
         result.metrics.startup_time.exit_code = None;
 
-        repository.save(&result).await.unwrap();
+        repository.save(&result, &configuration()).await.unwrap();
     }
 
-    repository.save(&run(4)).await.unwrap();
+    repository.save(&run(4), &configuration()).await.unwrap();
 
     let rows = repository.list_trends(30).await.unwrap();
 
@@ -233,7 +237,7 @@ async fn a_partial_workload_has_no_trend_http_metrics() {
 
     result.metrics.http_latency.as_mut().unwrap().status = "target_exited".to_string();
 
-    repository.save(&result).await.unwrap();
+    repository.save(&result, &configuration()).await.unwrap();
 
     let rows = repository.list_trends(30).await.unwrap();
     let row = row_of(&rows, 1);
@@ -270,7 +274,7 @@ async fn zero_observed_requests_are_null_and_not_a_zero_throughput() {
     latency.p99_ms = None;
     latency.max_ms = None;
 
-    repository.save(&result).await.unwrap();
+    repository.save(&result, &configuration()).await.unwrap();
 
     let rows = repository.list_trends(30).await.unwrap();
     let row = row_of(&rows, 1);
@@ -295,7 +299,7 @@ async fn a_run_without_a_workload_has_null_memory_cpu_and_http_metrics() {
     result.metrics.cpu = None;
     result.metrics.http_latency = None;
 
-    repository.save(&result).await.unwrap();
+    repository.save(&result, &configuration()).await.unwrap();
 
     let rows = repository.list_trends(30).await.unwrap();
     let row = row_of(&rows, 1);
@@ -322,7 +326,7 @@ async fn a_run_where_every_step_was_skipped_has_six_null_metrics() {
 
     result.run_id = id(1);
 
-    repository.save(&result).await.unwrap();
+    repository.save(&result, &configuration()).await.unwrap();
 
     let rows = repository.list_trends(30).await.unwrap();
 
@@ -369,7 +373,7 @@ async fn a_measured_zero_stays_zero() {
         .unwrap()
         .requests_per_second = 0.0;
 
-    repository.save(&result).await.unwrap();
+    repository.save(&result, &configuration()).await.unwrap();
 
     let rows = repository.list_trends(30).await.unwrap();
     let row = row_of(&rows, 1);
@@ -396,7 +400,7 @@ async fn the_history_summary_keeps_the_raw_values_the_trend_nulls() {
     result.metrics.build_time.exit_code = Some(1);
     result.metrics.http_latency.as_mut().unwrap().status = "target_exited".to_string();
 
-    repository.save(&result).await.unwrap();
+    repository.save(&result, &configuration()).await.unwrap();
 
     let query = SummaryQuery {
         limit: 1,

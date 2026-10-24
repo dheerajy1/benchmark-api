@@ -1,8 +1,9 @@
 use std::{future::Future, pin::Pin};
 
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::features::v1::benchmark::model::BenchmarkResult;
+use crate::features::v1::benchmark::{configuration::RunConfiguration, model::BenchmarkResult};
 
 use super::{
     error::PersistenceError,
@@ -27,10 +28,40 @@ pub type CountFuture<'a> = Pin<Box<dyn Future<Output = Result<i64, PersistenceEr
 pub type TrendsFuture<'a> =
     Pin<Box<dyn Future<Output = Result<Vec<TrendRow>, PersistenceError>> + Send + 'a>>;
 
+pub type ConfigurationFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<ConfigurationLookup, PersistenceError>> + Send + 'a>>;
+
+pub type ConfigurationListFuture<'a> = Pin<
+    Box<dyn Future<Output = Result<Vec<StoredConfigurationRun>, PersistenceError>> + Send + 'a>,
+>;
+
+// What a configuration lookup found for one run id
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigurationLookup {
+    // No run with this id
+    RunMissing,
+    // The run exists but was stored before configurations were recorded
+    NotRecorded,
+    Recorded(RunConfiguration),
+}
+
+// One run in the configuration listing, newest first
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredConfigurationRun {
+    pub run_id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub configuration: Option<RunConfiguration>,
+}
+
 // The boundary between the benchmark domain and storage, the handlers only know this trait
 pub trait BenchmarkRepository: Send + Sync {
-    // Stores one complete benchmark execution atomically, all of it or nothing
-    fn save<'a>(&'a self, result: &'a BenchmarkResult) -> PersistFuture<'a>;
+    // Stores one complete benchmark execution atomically, all of it or nothing, with the
+    // configuration it executed with. The configuration is part of the same transaction.
+    fn save<'a>(
+        &'a self,
+        result: &'a BenchmarkResult,
+        configuration: &'a RunConfiguration,
+    ) -> PersistFuture<'a>;
 
     // Lists history summaries, filtered and paginated by the database, newest first
     fn list_summaries<'a>(&'a self, query: &'a SummaryQuery) -> ListFuture<'a>;
@@ -47,4 +78,10 @@ pub trait BenchmarkRepository: Send + Sync {
 
     // The newest runs for the overview trends, newest first, with the comparison rules applied
     fn list_trends<'a>(&'a self, limit: i64) -> TrendsFuture<'a>;
+
+    // The configuration of one run, distinguishing a missing run from an unrecorded one
+    fn get_configuration<'a>(&'a self, run_id: Uuid) -> ConfigurationFuture<'a>;
+
+    // The newest runs with their configuration, newest first
+    fn list_configurations<'a>(&'a self, limit: i64) -> ConfigurationListFuture<'a>;
 }

@@ -130,3 +130,34 @@ Header values are never returned. `header_names` is `null` on readiness when the
 - Saved-target runs are not authentication. Anyone who can reach the API can start a saved target, and that consumes CPU, memory, the single execution slot, and up to 300 seconds of workload. Authentication is a separate, later step.
 - Header values are kept in memory only for the outgoing request. They are never written to a response, an event, a log line, the database, or a `Debug` output.
 - Only header names are stored with a run. The configuration row added later stores names, never values.
+
+## Recorded configuration
+
+Every stored run records the configuration it executed with, in the same transaction as the run.
+
+- `GET /api/v1/benchmarks/{run_id}/config` returns one run's configuration.
+- `GET /api/v1/benchmarks/configurations?limit=` returns the newest runs with their configuration (limit 1 to 200, default 50).
+- Runs stored before this feature have no configuration. They are reported with `recorded: false` and are not an error.
+- Only header names are stored. Values are never written to the database.
+
+The shape of `configuration`:
+
+```json
+{
+  "source": "target",
+  "target_id": "kafka-api-gateway",
+  "target_name": "Kafka API Gateway",
+  "target_path": "/srv/projects/kafka-api-gateway",
+  "startup": {
+    "program": "bun", "args": ["run", "start"],
+    "readiness": { "readiness_type": "http", "host": "127.0.0.1", "port": 5000,
+                   "path": "/api/v1/health", "method": "GET", "expected_status": 200,
+                   "header_names": ["X-Client-Id", "X-Client-Secret"] }
+  },
+  "workload": { "method": "GET", "path": "/api/v1/items", "mode": "duration",
+                "requests": null, "duration_seconds": 30, "concurrency": 50,
+                "header_names": ["X-Client-Secret"] }
+}
+```
+
+`source` is `custom` for a raw request, where `target_id` and `target_name` are `null`.

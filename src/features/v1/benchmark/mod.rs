@@ -1,3 +1,4 @@
+pub mod configuration;
 pub mod discovery;
 pub mod error;
 pub mod handler;

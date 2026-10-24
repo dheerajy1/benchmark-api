@@ -174,13 +174,33 @@ fn successful_duration(status: &str, duration_ms: Option<u64>) -> Option<i64> {
 }
 
 impl BenchmarkRepository for InMemoryRepository {
-    fn save<'a>(&'a self, result: &'a BenchmarkResult) -> PersistFuture<'a> {
+    fn save<'a>(
+        &'a self,
+        result: &'a BenchmarkResult,
+        _configuration: &'a benchmark_api::features::v1::benchmark::configuration::RunConfiguration,
+    ) -> PersistFuture<'a> {
         Box::pin(async move {
             self.saved.lock().unwrap().push(result.run_id);
             self.results.lock().unwrap().push(result.clone());
 
             Ok(())
         })
+    }
+
+    fn get_configuration<'a>(
+        &'a self,
+        _run_id: uuid::Uuid,
+    ) -> benchmark_api::persistence::repository::ConfigurationFuture<'a> {
+        Box::pin(async {
+            Ok(benchmark_api::persistence::repository::ConfigurationLookup::RunMissing)
+        })
+    }
+
+    fn list_configurations<'a>(
+        &'a self,
+        _limit: i64,
+    ) -> benchmark_api::persistence::repository::ConfigurationListFuture<'a> {
+        Box::pin(async { Ok(Vec::new()) })
     }
 
     fn list_summaries<'a>(&'a self, query: &'a SummaryQuery) -> ListFuture<'a> {
@@ -236,7 +256,33 @@ impl InMemoryRepository {
 pub struct FailingRepository;
 
 impl BenchmarkRepository for FailingRepository {
-    fn save<'a>(&'a self, _result: &'a BenchmarkResult) -> PersistFuture<'a> {
+    fn save<'a>(
+        &'a self,
+        _result: &'a BenchmarkResult,
+        _configuration: &'a benchmark_api::features::v1::benchmark::configuration::RunConfiguration,
+    ) -> PersistFuture<'a> {
+        Box::pin(async {
+            Err(PersistenceError::Database(
+                "simulated persistence failure".to_string(),
+            ))
+        })
+    }
+
+    fn get_configuration<'a>(
+        &'a self,
+        _run_id: uuid::Uuid,
+    ) -> benchmark_api::persistence::repository::ConfigurationFuture<'a> {
+        Box::pin(async {
+            Err(PersistenceError::Database(
+                "simulated persistence failure".to_string(),
+            ))
+        })
+    }
+
+    fn list_configurations<'a>(
+        &'a self,
+        _limit: i64,
+    ) -> benchmark_api::persistence::repository::ConfigurationListFuture<'a> {
         Box::pin(async {
             Err(PersistenceError::Database(
                 "simulated persistence failure".to_string(),

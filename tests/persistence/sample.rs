@@ -130,3 +130,55 @@ fn reading(rss_bytes: u64) -> MemoryReading {
         rss_size: format!("{rss_bytes} B"),
     }
 }
+
+// The configuration of a raw run with no startup and no workload
+pub fn configuration() -> benchmark_api::features::v1::benchmark::configuration::RunConfiguration {
+    benchmark_api::features::v1::benchmark::configuration::RunConfiguration {
+        source: "custom",
+        target_id: None,
+        target_name: None,
+        target_path: "/absolute/path/to/project".to_string(),
+        startup: None,
+        workload: None,
+    }
+}
+
+// The configuration of a saved-target run with startup, readiness headers and a workload
+pub fn target_configuration()
+-> benchmark_api::features::v1::benchmark::configuration::RunConfiguration {
+    use benchmark_api::features::v1::benchmark::configuration::{
+        ReadinessConfiguration, RunConfiguration, StartupConfiguration, WorkloadConfiguration,
+    };
+
+    RunConfiguration {
+        source: "target",
+        target_id: Some("demo".to_string()),
+        target_name: Some("Demo API".to_string()),
+        target_path: "/absolute/path/to/project".to_string(),
+        startup: Some(StartupConfiguration {
+            program: "bun".to_string(),
+            args: vec!["run".to_string(), "dev".to_string()],
+            readiness: ReadinessConfiguration {
+                readiness_type: "http".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 5000,
+                path: "/health".to_string(),
+                method: "GET".to_string(),
+                expected_status: 200,
+                header_names: Some(vec![
+                    "X-Client-Id".to_string(),
+                    "X-Client-Secret".to_string(),
+                ]),
+            },
+        }),
+        workload: Some(WorkloadConfiguration {
+            method: "GET".to_string(),
+            path: "/health".to_string(),
+            mode: "duration",
+            requests: None,
+            duration_seconds: Some(30),
+            concurrency: 50,
+            header_names: vec!["X-Client-Secret".to_string()],
+        }),
+    }
+}

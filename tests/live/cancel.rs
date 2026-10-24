@@ -411,7 +411,11 @@ async fn a_run_that_started_saving_is_completed_and_cancelling_is_refused() {
     }
 
     impl BenchmarkRepository for SlowRepository {
-        fn save<'a>(&'a self, result: &'a BenchmarkResult) -> PersistFuture<'a> {
+        fn save<'a>(
+            &'a self,
+            result: &'a BenchmarkResult,
+            _configuration: &'a benchmark_api::features::v1::benchmark::configuration::RunConfiguration,
+        ) -> PersistFuture<'a> {
             Box::pin(async move {
                 tokio::time::sleep(Duration::from_millis(400)).await;
 
@@ -419,6 +423,22 @@ async fn a_run_that_started_saving_is_completed_and_cancelling_is_refused() {
 
                 Ok(())
             })
+        }
+
+        fn get_configuration<'a>(
+            &'a self,
+            _run_id: Uuid,
+        ) -> benchmark_api::persistence::repository::ConfigurationFuture<'a> {
+            Box::pin(async {
+                Ok(benchmark_api::persistence::repository::ConfigurationLookup::RunMissing)
+            })
+        }
+
+        fn list_configurations<'a>(
+            &'a self,
+            _limit: i64,
+        ) -> benchmark_api::persistence::repository::ConfigurationListFuture<'a> {
+            Box::pin(async { Ok(Vec::new()) })
         }
 
         fn list_summaries<'a>(
