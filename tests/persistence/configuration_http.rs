@@ -21,6 +21,9 @@ use super::{
     support::{TestDatabase, setup},
 };
 
+// The path and start command that sample::result() stores for the run's startup row
+const SAMPLE_PATH: &str = "/absolute/path/to/project";
+
 fn env() -> Env {
     Env {
         app_port: 5001,
@@ -122,6 +125,14 @@ async fn the_listing_returns_saved_configurations_newest_first() {
         serde_json::to_value(sample::configuration()).unwrap()
     );
 
+    // path and startup are present for a recorded run, and match its configuration
+    assert_eq!(items[0]["path"], "/absolute/path/to/project");
+    assert_eq!(
+        items[0]["startup"],
+        serde_json::to_value(&sample::target_configuration().startup).unwrap()
+    );
+    assert_eq!(items[0]["startup"], items[0]["configuration"]["startup"]);
+
     // created_at is an RFC 3339 timestamp
     assert!(items[0]["created_at"].as_str().unwrap().contains('T'));
 
@@ -167,9 +178,31 @@ async fn a_run_stored_without_a_configuration_is_not_recorded_over_http() {
     let (status, listed) = get(&router, "/api/v1/benchmarks/configurations?limit=10").await;
 
     assert_eq!(status, StatusCode::OK, "{listed}");
-    assert_eq!(listed["data"][0]["run_id"], result.run_id.to_string());
-    assert_eq!(listed["data"][0]["recorded"], false);
-    assert_eq!(listed["data"][0]["configuration"], json!(null));
+
+    let entry = &listed["data"][0];
+    assert_eq!(entry["run_id"], result.run_id.to_string());
+    assert_eq!(entry["recorded"], false);
+    assert_eq!(entry["configuration"], json!(null));
+
+    // An older run still shows its path and start command, from the existing tables.
+    // Its header names were never recorded, so they are null.
+    assert_eq!(entry["path"], SAMPLE_PATH);
+    assert_eq!(
+        entry["startup"],
+        json!({
+            "program": "bun",
+            "args": ["run", "start"],
+            "readiness": {
+                "readiness_type": "http",
+                "host": "127.0.0.1",
+                "port": 5001,
+                "path": "/api/v1/health/app",
+                "method": "GET",
+                "expected_status": 200,
+                "header_names": null
+            }
+        })
+    );
 
     database.teardown().await;
 }

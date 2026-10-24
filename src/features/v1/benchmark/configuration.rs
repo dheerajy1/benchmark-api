@@ -45,6 +45,29 @@ pub struct WorkloadConfiguration {
     pub header_names: Vec<String>,
 }
 
+// The start command and readiness as a configuration-list entry shows them. Runs stored
+// before configurations were recorded have only what the existing tables hold, so every
+// part can be absent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StartupSummary {
+    pub program: Option<String>,
+    pub args: Option<Vec<String>>,
+    pub readiness: Option<ReadinessSummary>,
+}
+
+// Readiness settings of a list entry. header_names is null when the header names were not
+// recorded, which is the case for every run stored before configurations were recorded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ReadinessSummary {
+    pub readiness_type: String,
+    pub host: String,
+    pub port: u16,
+    pub path: String,
+    pub method: String,
+    pub expected_status: u16,
+    pub header_names: Option<Vec<String>>,
+}
+
 impl RunConfiguration {
     // Built from the request the run executes, which validation has already accepted
     pub fn from_request(request: &BenchmarkRequest, origin: &RunOrigin) -> Self {
@@ -94,6 +117,30 @@ impl RunConfiguration {
                     concurrency: workload.concurrency,
                     header_names: workload.headers.keys().cloned().collect(),
                 }),
+        }
+    }
+}
+
+impl From<ReadinessConfiguration> for ReadinessSummary {
+    fn from(readiness: ReadinessConfiguration) -> Self {
+        Self {
+            readiness_type: readiness.readiness_type,
+            host: readiness.host,
+            port: readiness.port,
+            path: readiness.path,
+            method: readiness.method,
+            expected_status: readiness.expected_status,
+            header_names: readiness.header_names,
+        }
+    }
+}
+
+impl From<StartupConfiguration> for StartupSummary {
+    fn from(startup: StartupConfiguration) -> Self {
+        Self {
+            program: Some(startup.program),
+            args: Some(startup.args),
+            readiness: Some(startup.readiness.into()),
         }
     }
 }

@@ -3,7 +3,10 @@ use std::{future::Future, pin::Pin};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::features::v1::benchmark::{configuration::RunConfiguration, model::BenchmarkResult};
+use crate::features::v1::benchmark::{
+    configuration::{RunConfiguration, StartupSummary},
+    model::BenchmarkResult,
+};
 
 use super::{
     error::PersistenceError,
@@ -50,6 +53,11 @@ pub enum ConfigurationLookup {
 pub struct StoredConfigurationRun {
     pub run_id: Uuid,
     pub created_at: DateTime<Utc>,
+    // The run's path: from its configuration when recorded, otherwise from the run row
+    pub path: String,
+    // The start command and readiness: from the configuration when recorded, otherwise from
+    // the run's startup row. None when the run had no start command.
+    pub startup: Option<StartupSummary>,
     pub configuration: Option<RunConfiguration>,
 }
 

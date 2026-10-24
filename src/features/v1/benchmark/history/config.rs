@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::{
     app_state::AppState,
     errors::{api_error::ApiError, catalog::ErrorCode, response::ApiSuccess},
-    features::v1::benchmark::configuration::RunConfiguration,
+    features::v1::benchmark::configuration::{RunConfiguration, StartupSummary},
     persistence::{
         error::PersistenceError,
         repository::{ConfigurationLookup, StoredConfigurationRun},
@@ -28,11 +28,14 @@ pub struct ConfigurationDetail {
     pub configuration: Option<RunConfiguration>,
 }
 
-// One row of GET /api/v1/benchmarks/configurations
+// One entry of GET /api/v1/benchmarks/configurations. path and startup are present for
+// every run; configuration is null for runs stored before configurations were recorded.
 #[derive(Debug, Serialize)]
 pub struct ConfigurationListItem {
     pub run_id: String,
     pub created_at: String,
+    pub path: String,
+    pub startup: Option<StartupSummary>,
     pub recorded: bool,
     pub configuration: Option<RunConfiguration>,
 }
@@ -42,6 +45,8 @@ impl From<StoredConfigurationRun> for ConfigurationListItem {
         Self {
             run_id: run.run_id.to_string(),
             created_at: run.created_at.to_rfc3339(),
+            path: run.path,
+            startup: run.startup,
             recorded: run.configuration.is_some(),
             configuration: run.configuration,
         }

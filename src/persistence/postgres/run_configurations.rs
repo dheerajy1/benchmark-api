@@ -1,10 +1,11 @@
 use chrono::{DateTime, Utc};
-use sqlx::{PgConnection, PgPool, Row, postgres::PgRow};
+use sqlx::{PgConnection, PgPool, Row, postgres::PgRow, types::Json};
 use uuid::Uuid;
 
 use crate::{
     features::v1::benchmark::configuration::{
-        ReadinessConfiguration, RunConfiguration, StartupConfiguration, WorkloadConfiguration,
+        ReadinessConfiguration, ReadinessSummary, RunConfiguration, StartupConfiguration,
+        StartupSummary, WorkloadConfiguration,
     },
     persistence::{
         error::PersistenceError,
@@ -95,14 +96,23 @@ pub async fn get(pool: &PgPool, run_id: Uuid) -> Result<ConfigurationLookup, Per
     })
 }
 
-// The newest runs with their configuration, newest first
+// The newest runs, newest first. Each run carries its path and start command: from the
+// configuration when recorded, and from the existing run and startup tables otherwise.
 pub async fn list(
     pool: &PgPool,
     limit: i64,
 ) -> Result<Vec<StoredConfigurationRun>, PersistenceError> {
     let sql = format!(
-        "SELECT r.id AS run_id, r.created_at, {SELECT_COLUMNS} FROM benchmark_runs r \
+        "SELECT r.id AS run_id, r.created_at, r.target_path AS run_target_path, \
+         s.program AS legacy_program, s.args AS legacy_args, \
+         s.readiness_type AS legacy_readiness_type, s.readiness_host AS legacy_readiness_host, \
+         s.readiness_port AS legacy_readiness_port, s.readiness_path AS legacy_readiness_path, \
+         s.readiness_method AS legacy_readiness_method, \
+         s.readiness_expected_status AS legacy_readiness_expected_status, \
+         {SELECT_COLUMNS} \
+         FROM benchmark_runs r \
          LEFT JOIN benchmark_run_configurations c ON c.run_id = r.id \
+         LEFT JOIN benchmark_startups s ON s.benchmark_run_id = r.id \
          ORDER BY r.created_at DESC, r.id DESC LIMIT $1"
     );
 
@@ -114,19 +124,62 @@ pub async fn list(
         let run_id: Uuid = row.try_get("run_id")?;
         let created_at: DateTime<Utc> = row.try_get("created_at")?;
 
-        let configuration = match row.try_get::<Option<String>, _>("source")? {
-            None => None,
-            Some(_) => Some(from_row(row)?),
+        let (path, startup, configuration) = match row.try_get::<Option<String>, _>("source")? {
+            None => (
+                row.try_get::<String, _>("run_target_path")?,
+                legacy_startup(row)?,
+                None,
+            ),
+            Some(_) => {
+                let configuration = from_row(row)?;
+                let path = configuration.target_path.clone();
+                let startup = configuration.startup.clone().map(StartupSummary::from);
+
+                (path, startup, Some(configuration))
+            }
         };
 
         runs.push(StoredConfigurationRun {
             run_id,
             created_at,
+            path,
+            startup,
             configuration,
         });
     }
 
     Ok(runs)
+}
+
+// The start command and readiness of a run stored before configurations were recorded,
+// from its startup row. Header names are not known for these runs, so they stay null.
+fn legacy_startup(row: &PgRow) -> Result<Option<StartupSummary>, PersistenceError> {
+    let program: Option<String> = row.try_get("legacy_program")?;
+    let args: Option<Json<Vec<String>>> = row.try_get("legacy_args")?;
+    let readiness_type: Option<String> = row.try_get("legacy_readiness_type")?;
+
+    let readiness = match readiness_type {
+        None => None,
+        Some(readiness_type) => Some(ReadinessSummary {
+            readiness_type,
+            host: required_string(row, "legacy_readiness_host")?,
+            port: required_u16(row, "legacy_readiness_port")?,
+            path: required_string(row, "legacy_readiness_path")?,
+            method: required_string(row, "legacy_readiness_method")?,
+            expected_status: required_u16(row, "legacy_readiness_expected_status")?,
+            header_names: None,
+        }),
+    };
+
+    if program.is_none() && args.is_none() && readiness.is_none() {
+        return Ok(None);
+    }
+
+    Ok(Some(StartupSummary {
+        program,
+        args: args.map(|Json(args)| args),
+        readiness,
+    }))
 }
 
 fn from_row(row: &PgRow) -> Result<RunConfiguration, PersistenceError> {
