@@ -13,16 +13,18 @@ use crate::{
     features::v1::{
         self,
         benchmark::live::{LiveRuns, RunSlot},
+        targets::policy::RunPolicy,
     },
     origin,
     persistence::repository::BenchmarkRepository,
 };
 
-// Full application router, shared by main and the API tests
+// Full application router, shared by main and the API tests. It uses the open policy
+// (raw requests allowed, no saved targets), as the router did before saved targets.
 pub fn router(env: Env, repository: Arc<dyn BenchmarkRepository>) -> Router {
     let live = LiveRuns::new(env.clone(), Arc::clone(&repository), RunSlot::new());
 
-    router_with_live(env, repository, live)
+    router_with_policy(env, repository, live, RunPolicy::open())
 }
 
 // The same router around a given live-run service, so a test can share its execution
@@ -31,6 +33,16 @@ pub fn router_with_live(
     env: Env,
     repository: Arc<dyn BenchmarkRepository>,
     live: LiveRuns,
+) -> Router {
+    router_with_policy(env, repository, live, RunPolicy::open())
+}
+
+// The router with an explicit run policy, used by the server binary with its settings
+pub fn router_with_policy(
+    env: Env,
+    repository: Arc<dyn BenchmarkRepository>,
+    live: LiveRuns,
+    policy: RunPolicy,
 ) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(
@@ -46,6 +58,7 @@ pub fn router_with_live(
             env,
             repository,
             live,
+            policy: Arc::new(policy),
         })
         .layer(cors)
 }

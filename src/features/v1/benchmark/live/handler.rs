@@ -23,7 +23,7 @@ use crate::{
         api_error::ApiError, catalog::ErrorCode, fallback::method_not_allowed, json::ApiJson,
         response::ApiSuccess,
     },
-    features::v1::benchmark::model::BenchmarkRequest,
+    features::v1::targets::{incoming::IncomingRun, resolve::resolve},
     origin,
 };
 
@@ -102,9 +102,13 @@ pub struct AfterQuery {
 // POST /api/v1/live-runs
 async fn create(
     State(state): State<AppState>,
-    ApiJson(request): ApiJson<BenchmarkRequest>,
+    incoming: IncomingRun,
 ) -> Result<ApiSuccess<LiveRunAccepted>, ApiError> {
-    let accepted = state.live.submit(request).map_err(ApiError::from)?;
+    let resolved = resolve(&state.policy, incoming)?;
+    let accepted = state
+        .live
+        .submit_with_origin(resolved.request, resolved.origin)
+        .map_err(ApiError::from)?;
     let run_id = accepted.run_id;
 
     Ok(ApiSuccess::accepted(

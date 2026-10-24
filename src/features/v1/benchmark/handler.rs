@@ -9,23 +9,29 @@ use uuid::Uuid;
 use crate::{
     app_state::AppState,
     errors::{
-        api_error::ApiError, catalog::ErrorCode, fallback::method_not_allowed, json::ApiJson,
-        response::ApiSuccess,
+        api_error::ApiError, catalog::ErrorCode, fallback::method_not_allowed, response::ApiSuccess,
+    },
+    features::v1::targets::{
+        incoming::IncomingRun,
+        resolve::{ResolvedRun, resolve},
     },
 };
 
 use super::{
     history,
     live::{RunContext, RunKind, SubmitError},
-    model::{BenchmarkRequest, BenchmarkResult},
+    model::BenchmarkResult,
     service,
 };
 
 async fn benchmark(
     State(state): State<AppState>,
-    ApiJson(request): ApiJson<BenchmarkRequest>,
+    incoming: IncomingRun,
 ) -> Result<ApiSuccess<BenchmarkResult>, ApiError> {
     let env = state.env.clone();
+
+    // The raw body and the switch are checked before anything is held
+    let ResolvedRun { request, .. } = resolve(&state.policy, incoming)?;
 
     // Validation comes first and holds nothing, so an invalid request is still a 400
     // while another benchmark is running

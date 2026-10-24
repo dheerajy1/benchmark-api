@@ -71,3 +71,9 @@ A terminal event moves the status in the same step, so nothing can follow it.
 
 `RunRegistry` keeps runs in memory. Finished runs are evicted after 10 minutes and beyond
 the newest 20; a run without a terminal event is never evicted, whatever the limits say.
+
+## Run origin and the custom-run switch
+
+Both submission paths resolve the incoming body first (`features/v1/targets/resolve.rs`). A raw request is refused with 403 while `ALLOW_CUSTOM_RUNS` is not `true`, and that check comes after the raw body has been parsed, so a malformed body still gets its 400. A saved-target body is resolved from the targets file and is never refused by the switch. The slot, the registry and the event log do not change.
+
+`run.accepted` gains `source` (`custom` or `target`) and `target.id` and `target.name`, which are `null` for a custom run. Nothing else in the event changes.

@@ -17,6 +17,7 @@ use crate::{
     features::v1::benchmark::{
         error::BenchmarkError,
         model::{BenchmarkRequest, BenchmarkResult},
+        run_origin::RunOrigin,
         service,
     },
     persistence::repository::BenchmarkRepository,
@@ -152,6 +153,15 @@ impl LiveRuns {
     // After the slot is acquired nothing below can fail, so a taken slot always
     // belongs to a supervisor.
     pub fn submit(&self, request: BenchmarkRequest) -> Result<Accepted, SubmitError> {
+        self.submit_with_origin(request, RunOrigin::Custom)
+    }
+
+    // The same submission, recording where the run came from in run.accepted
+    pub fn submit_with_origin(
+        &self,
+        request: BenchmarkRequest,
+        origin: RunOrigin,
+    ) -> Result<Accepted, SubmitError> {
         let target = service::prepare(&request).map_err(SubmitError::Invalid)?;
 
         let run_id = Uuid::now_v7();
@@ -166,10 +176,17 @@ impl LiveRuns {
             .registry
             .register_with_token(run_id, cancel_token.clone());
 
+        let (source, target_id, target_name) = origin.event_fields();
+
         let _ = entry.append(
             kind::RUN_ACCEPTED,
             json!({
-                "target": { "path": target.display().to_string() },
+                "source": source,
+                "target": {
+                    "path": target.display().to_string(),
+                    "id": target_id,
+                    "name": target_name
+                },
                 "created_at": format_timestamp(SystemTime::now()),
                 "plan": plan_of(&request),
                 "capabilities": { "cancel": true },

@@ -25,6 +25,12 @@ Runs a benchmark, stores it and returns the result.
 
 Only `path` is required. `workload` takes `requests` or `duration_seconds`, not both.
 
+A raw request is refused with `403 FORBIDDEN` unless the server was started with `ALLOW_CUSTOM_RUNS=true`. A body that names a saved target (`{ "target_id": "...", "workload": { ... } }`) is handled by the saved-target rules in [saved-targets.md](saved-targets.md). Raw requests that are valid JSON but malformed are answered exactly as before this feature, with the same status, code, message and error text.
+
+## GET /targets
+
+Lists the saved targets from the targets file, with names only, never a header value. See [saved-targets.md](saved-targets.md) for the response shape and the rules.
+
 ## GET /benchmarks
 
 Returns historical **summaries**, newest first.

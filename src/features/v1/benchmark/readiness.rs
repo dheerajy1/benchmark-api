@@ -25,7 +25,27 @@ pub enum ReadinessCheck {
     NotReady,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+// Header values are never printed, only their names
+impl std::fmt::Debug for ReadinessSettings {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ReadinessSettings")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("path", &self.path)
+            .field("expected_status", &self.expected_status)
+            .field(
+                "headers",
+                &self
+                    .headers
+                    .as_ref()
+                    .map(|headers| super::redact::pair_names(headers)),
+            )
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct ReadinessSettings {
     pub host: String,
     pub port: u16,
