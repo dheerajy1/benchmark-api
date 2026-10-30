@@ -91,7 +91,7 @@ pub async fn get(pool: &PgPool, run_id: Uuid) -> Result<ConfigurationLookup, Per
         None => ConfigurationLookup::RunMissing,
         Some(row) => match row.try_get::<Option<String>, _>("source")? {
             None => ConfigurationLookup::NotRecorded,
-            Some(_) => ConfigurationLookup::Recorded(from_row(&row)?),
+            Some(_) => ConfigurationLookup::Recorded(Box::new(from_row(&row)?)),
         },
     })
 }

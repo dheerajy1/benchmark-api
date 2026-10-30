@@ -262,27 +262,25 @@ fn discover_env_file(target: &Path, command: &BuildCommand) -> Option<PathBuf> {
     if command.program == "bun" || command.program == "npm" {
         let package_json_path = target.join("package.json");
 
-        if let Ok(contents) = fs::read_to_string(package_json_path) {
-            if let Ok(package_json) = serde_json::from_str::<Value>(&contents) {
-                if let Some(start_script) = package_json
-                    .get("scripts")
-                    .and_then(Value::as_object)
-                    .and_then(|scripts| scripts.get("start"))
-                    .and_then(Value::as_str)
+        if let Ok(contents) = fs::read_to_string(package_json_path)
+            && let Ok(package_json) = serde_json::from_str::<Value>(&contents)
+            && let Some(start_script) = package_json
+                .get("scripts")
+                .and_then(Value::as_object)
+                .and_then(|scripts| scripts.get("start"))
+                .and_then(Value::as_str)
+        {
+            let tokens: Vec<&str> = start_script.split_whitespace().collect();
+
+            for index in 0..tokens.len() {
+                if tokens[index] == "--env-file"
+                    && let Some(path) = tokens.get(index + 1)
                 {
-                    let tokens: Vec<&str> = start_script.split_whitespace().collect();
+                    return Some(target.join(path));
+                }
 
-                    for index in 0..tokens.len() {
-                        if tokens[index] == "--env-file" {
-                            if let Some(path) = tokens.get(index + 1) {
-                                return Some(target.join(path));
-                            }
-                        }
-
-                        if let Some(path) = tokens[index].strip_prefix("--env-file=") {
-                            return Some(target.join(path));
-                        }
-                    }
+                if let Some(path) = tokens[index].strip_prefix("--env-file=") {
+                    return Some(target.join(path));
                 }
             }
         }

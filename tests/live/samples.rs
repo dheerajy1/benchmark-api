@@ -382,7 +382,7 @@ async fn a_real_workload_emits_consistent_samples_between_its_stage_events() {
     let request: BenchmarkRequest =
         serde_json::from_str(&long_benchmark_body(temp_dir.path(), port, 3)).unwrap();
 
-    let accepted = live.submit(request).ok().expect("accepted");
+    let accepted = live.submit(request).expect("accepted");
 
     wait_until_terminal(&live, &accepted.entry).await;
     wait_until_slot_free(live.slot()).await;

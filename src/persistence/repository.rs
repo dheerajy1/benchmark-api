@@ -45,7 +45,7 @@ pub enum ConfigurationLookup {
     RunMissing,
     // The run exists but was stored before configurations were recorded
     NotRecorded,
-    Recorded(RunConfiguration),
+    Recorded(Box<RunConfiguration>),
 }
 
 // One run in the configuration listing, newest first

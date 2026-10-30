@@ -104,7 +104,7 @@ fn stage_started(entry: &RunEntry, stage: &str) -> bool {
 }
 
 fn has_event(entry: &RunEntry, wanted: &str) -> bool {
-    kinds(entry).iter().any(|name| *name == wanted)
+    kinds(entry).contains(&wanted)
 }
 
 fn last_stage(entry: &RunEntry) -> Value {
@@ -130,7 +130,7 @@ async fn cancelling_a_build_stops_it_and_every_process_it_started() {
     let repository = Arc::new(InMemoryRepository::default());
     let live = real_live(repository.clone());
 
-    let accepted = live.submit(request_for(dir.path())).ok().expect("accepted");
+    let accepted = live.submit(request_for(dir.path())).expect("accepted");
 
     wait_until(
         || stage_started(&accepted.entry, "build"),
@@ -180,7 +180,7 @@ async fn cancelling_while_waiting_for_readiness_stops_the_target_and_its_childre
         Value::Null,
     );
 
-    let accepted = live.submit(request).ok().expect("accepted");
+    let accepted = live.submit(request).expect("accepted");
 
     wait_until(
         || stage_started(&accepted.entry, "startup"),
@@ -226,7 +226,7 @@ async fn cancelling_during_the_baseline_stops_the_target_and_its_children() {
         json!({ "method": "GET", "path": "/", "duration_seconds": 30, "concurrency": 2 }),
     );
 
-    let accepted = live.submit(request).ok().expect("accepted");
+    let accepted = live.submit(request).expect("accepted");
 
     wait_until(
         || stage_started(&accepted.entry, "baseline"),
@@ -268,7 +268,7 @@ async fn cancelling_during_the_workload_stops_the_requests_the_target_and_its_ch
         json!({ "method": "GET", "path": "/", "duration_seconds": 30, "concurrency": 4 }),
     );
 
-    let accepted = live.submit(request).ok().expect("accepted");
+    let accepted = live.submit(request).expect("accepted");
 
     wait_until(
         || has_event(&accepted.entry, kind::SAMPLE),
@@ -329,7 +329,7 @@ async fn a_cancel_before_anything_started_leaves_nothing_running() {
     let repository = Arc::new(InMemoryRepository::default());
     let live = real_live(repository.clone());
 
-    let accepted = live.submit(request_for(dir.path())).ok().expect("accepted");
+    let accepted = live.submit(request_for(dir.path())).expect("accepted");
 
     accepted.entry.request_cancel();
 
@@ -364,7 +364,7 @@ async fn a_live_run_that_finishes_normally_leaves_no_process_behind() {
         json!({ "method": "GET", "path": "/", "duration_seconds": 1, "concurrency": 2 }),
     );
 
-    let accepted = live.submit(request).ok().expect("accepted");
+    let accepted = live.submit(request).expect("accepted");
 
     wait_until_terminal(&live, &accepted.entry).await;
 

@@ -46,7 +46,6 @@ async fn a_slot_held_by_a_live_run_refuses_the_legacy_endpoint_and_names_the_run
     let _permit = live
         .slot()
         .try_acquire(RunKind::Live, Some(run_id))
-        .ok()
         .expect("free slot");
 
     let (status, body) = send(router, post_json(&valid_body(temp_dir.path()))).await;
@@ -67,7 +66,6 @@ async fn a_slot_held_by_a_legacy_run_refuses_the_legacy_endpoint_with_a_plain_de
     let _permit = live
         .slot()
         .try_acquire(RunKind::Legacy, None)
-        .ok()
         .expect("free slot");
 
     let (status, body) = send(router, post_json(&valid_body(temp_dir.path()))).await;
@@ -86,7 +84,6 @@ async fn an_invalid_request_is_still_a_400_while_the_slot_is_busy() {
     let _permit = live
         .slot()
         .try_acquire(RunKind::Live, Some(uuid::Uuid::now_v7()))
-        .ok()
         .expect("free slot");
 
     let (status, body) = send(
@@ -162,10 +159,7 @@ async fn a_live_run_in_flight_refuses_the_legacy_endpoint_until_it_ends() {
 
     let router = app::router_with_live(test_env(), repository.clone(), live.clone());
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     let (status, body) = send(router.clone(), post_json(&valid_body(temp_dir.path()))).await;
 
@@ -197,10 +191,7 @@ async fn an_immediate_live_run_followed_by_a_legacy_request_both_succeed() {
 
     let router = app::router_with_live(test_env(), repository.clone(), live.clone());
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until_terminal(&live, &accepted.entry).await;
     wait_until_slot_free(live.slot()).await;

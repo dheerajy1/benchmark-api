@@ -88,7 +88,6 @@ fn submit(
         .server
         .runtime
         .block_on(async { started.live.submit(request_for(dir.path())) })
-        .ok()
         .expect("accepted");
 
     (accepted.run_id, accepted.entry)
@@ -99,9 +98,7 @@ fn ws_path(run_id: Uuid) -> String {
 }
 
 fn open(started: &Started, run_id: Uuid) -> WsClient {
-    WsClient::open(started.server.address, &ws_path(run_id), &[])
-        .ok()
-        .expect("the handshake works")
+    WsClient::open(started.server.address, &ws_path(run_id), &[]).expect("the handshake works")
 }
 
 fn types(frames: &[Value]) -> Vec<String> {
@@ -238,7 +235,6 @@ fn after_resumes_without_duplicates_and_after_the_last_seq_only_closes() {
         &format!("{}?after=3", ws_path(run_id)),
         &[],
     )
-    .ok()
     .expect("handshake");
 
     let (frames, code) = resumed.until_close();
@@ -252,7 +248,6 @@ fn after_resumes_without_duplicates_and_after_the_last_seq_only_closes() {
         &format!("{}?after=6", ws_path(run_id)),
         &[],
     )
-    .ok()
     .expect("handshake");
 
     let (frames, code) = finished.until_close();
@@ -341,7 +336,6 @@ fn a_client_without_an_origin_header_is_allowed_because_it_is_not_a_browser() {
     let (run_id, _entry) = submit(&started, &dir);
 
     let mut client = WsClient::open(started.server.address, &ws_path(run_id), &[])
-        .ok()
         .expect("a handshake without Origin works");
 
     assert_eq!(client.json()["type"], json!("stream.opened"));

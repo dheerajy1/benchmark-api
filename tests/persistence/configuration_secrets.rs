@@ -107,7 +107,10 @@ async fn no_header_value_reaches_the_configuration_table() {
     // And the stored configuration reads back equal to what was saved, names only
     let lookup = repository.get_configuration(result.run_id).await.unwrap();
 
-    assert_eq!(lookup, ConfigurationLookup::Recorded(configuration));
+    assert_eq!(
+        lookup,
+        ConfigurationLookup::Recorded(Box::new(configuration))
+    );
 
     database.teardown().await;
 }

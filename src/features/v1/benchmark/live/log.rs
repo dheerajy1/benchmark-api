@@ -114,10 +114,10 @@ impl EventLog {
 
         let seq = self.last_seq + 1;
 
-        if event_kind == kind::STAGE_STARTED {
-            if let Some(stage) = data.get("stage").and_then(Value::as_str) {
-                self.current_stage = Some(stage.to_string());
-            }
+        if event_kind == kind::STAGE_STARTED
+            && let Some(stage) = data.get("stage").and_then(Value::as_str)
+        {
+            self.current_stage = Some(stage.to_string());
         }
 
         let run_event = RunEvent {
@@ -133,10 +133,10 @@ impl EventLog {
         if sample {
             self.samples.push_back(run_event);
 
-            if self.samples.len() > self.sample_capacity {
-                if let Some(evicted) = self.samples.pop_front() {
-                    self.dropped_through_seq = evicted.seq;
-                }
+            if self.samples.len() > self.sample_capacity
+                && let Some(evicted) = self.samples.pop_front()
+            {
+                self.dropped_through_seq = evicted.seq;
             }
         } else {
             self.structural.push(run_event);

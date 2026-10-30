@@ -24,7 +24,10 @@ async fn a_stored_target_configuration_is_returned_exactly() {
 
     let lookup = repository.get_configuration(result.run_id).await.unwrap();
 
-    assert_eq!(lookup, ConfigurationLookup::Recorded(configuration));
+    assert_eq!(
+        lookup,
+        ConfigurationLookup::Recorded(Box::new(configuration))
+    );
 
     database.teardown().await;
 }
@@ -43,7 +46,10 @@ async fn a_custom_configuration_without_startup_or_workload_round_trips() {
 
     let lookup = repository.get_configuration(result.run_id).await.unwrap();
 
-    assert_eq!(lookup, ConfigurationLookup::Recorded(configuration));
+    assert_eq!(
+        lookup,
+        ConfigurationLookup::Recorded(Box::new(configuration))
+    );
 
     database.teardown().await;
 }

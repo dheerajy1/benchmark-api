@@ -78,7 +78,9 @@ struct Measured {
     memory_peak_bytes: f64,
 }
 
-const METRICS: [(&str, fn(&Measured) -> f64); 7] = [
+type MetricFn = fn(&Measured) -> f64;
+
+const METRICS: [(&str, MetricFn); 7] = [
     ("requests_per_second", |m| m.requests_per_second),
     ("p50_ms", |m| m.p50_ms),
     ("p95_ms", |m| m.p95_ms),
@@ -145,7 +147,7 @@ fn median(values: &[f64]) -> f64 {
 
     let middle = sorted.len() / 2;
 
-    if sorted.len() % 2 == 0 {
+    if sorted.len().is_multiple_of(2) {
         (sorted[middle - 1] + sorted[middle]) / 2.0
     } else {
         sorted[middle]

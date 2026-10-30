@@ -36,7 +36,7 @@ pub fn resolve(policy: &RunPolicy, incoming: IncomingRun) -> Result<ResolvedRun,
             }
 
             Ok(ResolvedRun {
-                request,
+                request: *request,
                 origin: RunOrigin::Custom,
             })
         }

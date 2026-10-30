@@ -47,13 +47,13 @@ fn list(
     repository: &InMemoryRepository,
     query: &SummaryQuery,
 ) -> Result<Vec<SummaryRow>, PersistenceError> {
-    if let Some(code) = &query.runtime_code {
-        if !KNOWN_RUNTIMES.contains(&code.as_str()) {
-            return Err(PersistenceError::UnknownLookup {
-                table: "runtimes",
-                code: code.clone(),
-            });
-        }
+    if let Some(code) = &query.runtime_code
+        && !KNOWN_RUNTIMES.contains(&code.as_str())
+    {
+        return Err(PersistenceError::UnknownLookup {
+            table: "runtimes",
+            code: code.clone(),
+        });
     }
 
     let mut rows: Vec<SummaryRow> = repository
@@ -85,7 +85,7 @@ fn list(
         runtime_matches && path_matches && after_cursor
     });
 
-    rows.sort_by(|a, b| (b.created_at, b.id).cmp(&(a.created_at, a.id)));
+    rows.sort_by_key(|row| std::cmp::Reverse((row.created_at, row.id)));
     rows.truncate(query.limit as usize);
 
     Ok(rows)
@@ -128,7 +128,7 @@ fn trends(repository: &InMemoryRepository, limit: i64) -> Vec<TrendRow> {
         .map(trend_of)
         .collect();
 
-    rows.sort_by(|a, b| (b.created_at, b.id).cmp(&(a.created_at, a.id)));
+    rows.sort_by_key(|row| std::cmp::Reverse((row.created_at, row.id)));
     rows.truncate(usize::try_from(limit).unwrap_or(0));
 
     rows

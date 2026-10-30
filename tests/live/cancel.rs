@@ -235,10 +235,7 @@ async fn a_submission_gets_a_random_token_that_is_never_part_of_an_event() {
         }),
     );
 
-    let first = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let first = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     assert_eq!(first.cancel_token.len(), 32);
     assert!(first.cancel_token.chars().all(|c| c.is_ascii_hexdigit()));
@@ -253,10 +250,7 @@ async fn a_submission_gets_a_random_token_that_is_never_part_of_an_event() {
     wait_until_terminal(&live, &first.entry).await;
     wait_until_slot_free(live.slot()).await;
 
-    let second = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let second = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until_terminal(&live, &second.entry).await;
     wait_until_slot_free(live.slot()).await;
@@ -285,10 +279,7 @@ async fn cancelling_a_run_that_works_ends_in_exactly_one_run_cancelled_and_store
         }),
     );
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until(
         || kinds(&accepted.entry).contains(&kind::STAGE_STARTED),
@@ -334,10 +325,7 @@ async fn cancelled_is_not_reported_until_the_work_has_stopped() {
         }),
     );
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until(
         || kinds(&accepted.entry).contains(&kind::STAGE_STARTED),
@@ -378,10 +366,7 @@ async fn a_cancelled_run_never_reaches_the_repository_not_even_a_failing_one() {
         }),
     );
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until(
         || kinds(&accepted.entry).contains(&kind::STAGE_STARTED),
@@ -481,10 +466,7 @@ async fn a_run_that_started_saving_is_completed_and_cancelling_is_refused() {
 
     let live = live_with(repository.clone(), Arc::new(ImmediateExecutor));
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until(
         || {
@@ -521,10 +503,7 @@ async fn sixteen_concurrent_cancels_record_one_request_and_one_end() {
         }),
     );
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until(
         || kinds(&accepted.entry).contains(&kind::STAGE_STARTED),
@@ -593,21 +572,18 @@ async fn a_finished_run_answers_every_cancel_with_its_status_and_changes_nothing
 
     let a = completed
         .submit(request_for(temp_dir.path()))
-        .ok()
         .expect("accepted");
     wait_until_terminal(&completed, &a.entry).await;
     wait_until_slot_free(completed.slot()).await;
 
     let b = failed
         .submit(request_for(temp_dir.path()))
-        .ok()
         .expect("accepted");
     wait_until_terminal(&failed, &b.entry).await;
     wait_until_slot_free(failed.slot()).await;
 
     let c = cancelled
         .submit(request_for(temp_dir.path()))
-        .ok()
         .expect("accepted");
     wait_until(
         || kinds(&c.entry).contains(&kind::STAGE_STARTED),
@@ -644,10 +620,7 @@ async fn after_a_cancellation_the_slot_is_free_and_the_next_run_works() {
         }),
     );
 
-    let first = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let first = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until(
         || kinds(&first.entry).contains(&kind::STAGE_STARTED),
@@ -661,10 +634,7 @@ async fn after_a_cancellation_the_slot_is_free_and_the_next_run_works() {
 
     gate.store(true, Ordering::SeqCst);
 
-    let second = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let second = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until_terminal(&live, &second.entry).await;
     wait_until_slot_free(live.slot()).await;
@@ -698,10 +668,7 @@ async fn cancelling_while_a_run_completes_always_ends_in_exactly_one_consistent_
     for iteration in 0..80u64 {
         wait_until_slot_free(live.slot()).await;
 
-        let accepted = live
-            .submit(request_for(temp_dir.path()))
-            .ok()
-            .expect("accepted");
+        let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
         // Spreads the cancel request over the moment the run finishes
         tokio::time::sleep(Duration::from_micros((iteration % 16) * 250)).await;
@@ -766,10 +733,7 @@ async fn cancelling_while_a_run_fails_ends_in_failed_because_that_is_what_happen
     for iteration in 0..60u64 {
         wait_until_slot_free(live.slot()).await;
 
-        let accepted = live
-            .submit(request_for(temp_dir.path()))
-            .ok()
-            .expect("accepted");
+        let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
         tokio::time::sleep(Duration::from_micros((iteration % 16) * 250)).await;
 

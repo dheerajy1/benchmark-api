@@ -34,7 +34,7 @@ pub async fn list(
 
     // An unknown runtime code is reported, not silently treated as an empty result
     let runtime_id = match &query.runtime_code {
-        Some(code) => Some(lookup_id(&mut *connection, Lookup::Runtime, code).await?),
+        Some(code) => Some(lookup_id(&mut connection, Lookup::Runtime, code).await?),
         None => None,
     };
 

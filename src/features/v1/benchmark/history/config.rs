@@ -86,7 +86,7 @@ pub async fn detail(
         ConfigurationLookup::Recorded(configuration) => ConfigurationDetail {
             run_id: parsed.to_string(),
             recorded: true,
-            configuration: Some(configuration),
+            configuration: Some(*configuration),
         },
     };
 

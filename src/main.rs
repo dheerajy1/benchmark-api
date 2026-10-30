@@ -44,10 +44,10 @@ async fn main() {
         std::process::exit(1);
     });
 
-    if let Some(file) = configured_file(&runs) {
-        if let Some(warning) = permission_warning(Path::new(file)) {
-            eprintln!("[targets] {warning}");
-        }
+    if let Some(file) = configured_file(&runs)
+        && let Some(warning) = permission_warning(Path::new(file))
+    {
+        eprintln!("[targets] {warning}");
     }
 
     let pool = connection::connect(&database)

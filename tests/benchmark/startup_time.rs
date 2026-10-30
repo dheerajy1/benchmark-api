@@ -174,9 +174,7 @@ fn successful_http_readiness_reports_startup_time() {
 
     write_package_json(
         &temp_dir,
-        &format!(
-            r#"bun --env-file=.env -e "Bun.serve({{ port: process.env.APP_PORT, fetch() {{ return new Response('ok'); }} }})""#
-        ),
+        r#"bun --env-file=.env -e "Bun.serve({ port: process.env.APP_PORT, fetch() { return new Response('ok'); } })""#,
     );
     write_env(&temp_dir, port);
 
@@ -228,9 +226,7 @@ fn readiness_waits_until_http_server_is_available() {
 
     write_package_json(
         &temp_dir,
-        &format!(
-            r#"bun --env-file=.env -e "setTimeout(() => Bun.serve({{ port: process.env.APP_PORT, fetch() {{ return new Response('ok'); }} }}), 200)""#
-        ),
+        r#"bun --env-file=.env -e "setTimeout(() => Bun.serve({ port: process.env.APP_PORT, fetch() { return new Response('ok'); } }), 200)""#,
     );
     write_env(&temp_dir, port);
 
@@ -257,9 +253,7 @@ fn startup_process_is_cleaned_up_after_success() {
 
     write_package_json(
         &temp_dir,
-        &format!(
-            r#"bun --env-file=.env -e "Bun.serve({{ port: process.env.APP_PORT, fetch() {{ return new Response('ok'); }} }})""#
-        ),
+        r#"bun --env-file=.env -e "Bun.serve({ port: process.env.APP_PORT, fetch() { return new Response('ok'); } })""#,
     );
     write_env(&temp_dir, port);
 
@@ -285,9 +279,7 @@ fn timestamps_are_present_for_successful_startup() {
 
     write_package_json(
         &temp_dir,
-        &format!(
-            r#"bun --env-file=.env -e "Bun.serve({{ port: process.env.APP_PORT, fetch() {{ return new Response('ok'); }} }})""#
-        ),
+        r#"bun --env-file=.env -e "Bun.serve({ port: process.env.APP_PORT, fetch() { return new Response('ok'); } })""#,
     );
     write_env(&temp_dir, port);
 
@@ -311,9 +303,7 @@ fn non_200_response_reports_unhealthy() {
 
     write_package_json(
         &temp_dir,
-        &format!(
-            r#"bun --env-file=.env -e "Bun.serve({{ port: process.env.APP_PORT, fetch() {{ return new Response('no', {{ status: 500 }}); }} }})""#
-        ),
+        r#"bun --env-file=.env -e "Bun.serve({ port: process.env.APP_PORT, fetch() { return new Response('no', { status: 500 }); } })""#,
     );
     write_env(&temp_dir, port);
 
@@ -342,9 +332,7 @@ fn readiness_request_sends_client_headers() {
     // Server returns 200 only when both headers match test_env, otherwise 403
     write_package_json(
         &temp_dir,
-        &format!(
-            r#"bun --env-file=.env -e "Bun.serve({{ port: process.env.APP_PORT, fetch(req) {{ return req.headers.get('x-client-id') === 'test-client-id' && req.headers.get('x-client-secret') === 'test-client-secret' ? new Response('ok') : new Response('no', {{ status: 403 }}); }} }})""#
-        ),
+        r#"bun --env-file=.env -e "Bun.serve({ port: process.env.APP_PORT, fetch(req) { return req.headers.get('x-client-id') === 'test-client-id' && req.headers.get('x-client-secret') === 'test-client-secret' ? new Response('ok') : new Response('no', { status: 403 }); } })""#,
     );
     write_env(&temp_dir, port);
 

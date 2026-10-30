@@ -13,7 +13,7 @@ use crate::{
 
 // One run request as it arrived: a raw request, or a reference to a saved target
 pub enum IncomingRun {
-    Raw(BenchmarkRequest),
+    Raw(Box<BenchmarkRequest>),
     Target(TargetRunBody),
 }
 
@@ -54,7 +54,7 @@ impl FromRequest<AppState> for IncomingRun {
         let ApiJson(request) =
             ApiJson::<BenchmarkRequest>::from_request(rebuild(&headers, body), state).await?;
 
-        Ok(IncomingRun::Raw(request))
+        Ok(IncomingRun::Raw(Box::new(request)))
     }
 }
 

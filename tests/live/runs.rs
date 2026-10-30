@@ -140,10 +140,7 @@ async fn a_run_is_persisted_before_it_is_reported_completed() {
         Arc::new(ImmediateExecutor),
     );
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until_terminal(&live, &accepted.entry).await;
     wait_until_slot_free(live.slot()).await;
@@ -191,10 +188,7 @@ async fn the_run_id_exists_before_the_run_finishes_and_the_first_event_is_run_ac
         }),
     );
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     let from_registry = live
         .registry()
@@ -225,10 +219,7 @@ async fn an_execution_error_ends_in_run_failed_and_stores_nothing() {
 
     let live = live_with(repository.clone(), Arc::new(FailingExecutor));
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until_terminal(&live, &accepted.entry).await;
     wait_until_slot_free(live.slot()).await;
@@ -252,10 +243,7 @@ async fn a_panicking_execution_ends_in_run_failed_and_releases_the_slot() {
 
     let live = live_with(repository.clone(), Arc::new(PanickingExecutor));
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until_terminal(&live, &accepted.entry).await;
     wait_until_slot_free(live.slot()).await;
@@ -281,10 +269,7 @@ async fn a_persistence_failure_ends_in_run_failed_and_never_reports_completed() 
 
     let live = live_with(Arc::new(FailingRepository), Arc::new(ImmediateExecutor));
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until_terminal(&live, &accepted.entry).await;
     wait_until_slot_free(live.slot()).await;
@@ -320,10 +305,7 @@ async fn a_second_submission_is_refused_while_the_run_executes_and_accepted_afte
         }),
     );
 
-    let first = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let first = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     assert_eq!(
         live.slot().active(),
@@ -360,7 +342,6 @@ async fn a_second_submission_is_refused_while_the_run_executes_and_accepted_afte
 
     let third = live
         .submit(request_for(temp_dir.path()))
-        .ok()
         .expect("accepted after the first run ended");
 
     wait_until_terminal(&live, &third.entry).await;
@@ -397,10 +378,7 @@ async fn a_finished_run_is_replayable_in_full_and_from_any_sequence() {
         Arc::new(ImmediateExecutor),
     );
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until_terminal(&live, &accepted.entry).await;
     wait_until_slot_free(live.slot()).await;
@@ -436,10 +414,7 @@ async fn a_real_run_without_startup_reports_its_stages_in_order() {
 
     let live = LiveRuns::new(test_env(), repository.clone(), RunSlot::new());
 
-    let accepted = live
-        .submit(request_for(temp_dir.path()))
-        .ok()
-        .expect("accepted");
+    let accepted = live.submit(request_for(temp_dir.path())).expect("accepted");
 
     wait_until_terminal(&live, &accepted.entry).await;
     wait_until_slot_free(live.slot()).await;
@@ -519,7 +494,6 @@ fn a_run_reaches_a_terminal_state_when_the_runtime_shuts_down_under_it() {
 
     let accepted = runtime
         .block_on(async { live.submit(request_for(temp_dir.path())) })
-        .ok()
         .expect("accepted");
 
     let release = Arc::clone(&gate);
