@@ -10,6 +10,156 @@ permissions:
   contents: read
 
 jobs:
+  # ─────────────────────────────────────────────────────
+  # Job: Build, Lint & Test
+  # steps (checkout → setup Rust → cache → setup Bun → fmt → check → lint → test → build + summaries)
+  # ─────────────────────────────────────────────────────
   test:
-    name: Test
-    uses: dheerajy1/.github/.github/workflows/test-rust.yml@main
+    name: Build, Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      # ---------------------------------------------
+      # 1. Checkout repository
+      # ---------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------
+      # 1.1. Add summary for checkout
+      # ---------------------------------------------
+      - name: Add checkout summary
+        run: |
+          echo "## Repository Checkout" >> $GITHUB_STEP_SUMMARY
+          echo "Checked out branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Repository ready for Rust setup"
+
+      # ---------------------------------------------
+      # 2. Setup Rust toolchain
+      # ---------------------------------------------
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      # ---------------------------------------------
+      # 2.1. Add summary for Rust
+      # ---------------------------------------------
+      - name: Add Rust summary
+        run: |
+          echo "## Rust Setup" >> $GITHUB_STEP_SUMMARY
+          echo "Rust version: $(rustc --version)" >> $GITHUB_STEP_SUMMARY
+          echo "Cargo version: $(cargo --version)" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Rust toolchain configured"
+
+      # ---------------------------------------------
+      # 3. Cache Rust dependencies & build artifacts
+      # ---------------------------------------------
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        id: rust-cache
+
+      # ---------------------------------------------
+      # 3.1. Add summary for Rust cache
+      # ---------------------------------------------
+      - name: Add Rust cache summary
+        run: |
+          CACHE_HIT=${{ steps.rust-cache.outputs.cache-hit }}
+          echo "## Rust Dependency Cache" >> $GITHUB_STEP_SUMMARY
+          echo "Cache hit: $CACHE_HIT" >> $GITHUB_STEP_SUMMARY
+          if [ "$CACHE_HIT" = "true" ]; then
+            echo "::notice::Rust cache restored"
+          else
+            echo "::notice::Rust cache miss—dependencies will be rebuilt"
+          fi
+
+      # ---------------------------------------------
+      # 4. Setup Bun (the tests launch bun apps as benchmark targets)
+      # ---------------------------------------------
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # ---------------------------------------------
+      # 4.1. Add summary for Bun
+      # ---------------------------------------------
+      - name: Add Bun summary
+        run: |
+          echo "## Bun Setup" >> $GITHUB_STEP_SUMMARY
+          echo "Bun version: $(bun --version)" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Bun runtime configured"
+
+      # ---------------------------------------------
+      # 5. Check formatting
+      # ---------------------------------------------
+      - name: Format Check
+        run: cargo fmt --check
+
+      # ---------------------------------------------
+      # 5.1. Add summary for format check
+      # ---------------------------------------------
+      - name: Add format check summary
+        run: |
+          echo "## Cargo Format Results" >> $GITHUB_STEP_SUMMARY
+          echo "Cargo format check completed successfully—codebase formatted" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Rust formatting check passed"
+
+      # ---------------------------------------------
+      # 6. Check project
+      # ---------------------------------------------
+      - name: Check
+        run: cargo check --locked
+
+      # ---------------------------------------------
+      # 6.1. Add summary for check
+      # ---------------------------------------------
+      - name: Add check summary
+        run: |
+          echo "## Cargo Check Results" >> $GITHUB_STEP_SUMMARY
+          echo "Cargo check completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Cargo check passed"
+
+      # ---------------------------------------------
+      # 7. Lint project (library, binary and tests)
+      # ---------------------------------------------
+      - name: Lint
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      # ---------------------------------------------
+      # 7.1. Add summary for lint
+      # ---------------------------------------------
+      - name: Add lint summary
+        run: |
+          echo "## Clippy Results" >> $GITHUB_STEP_SUMMARY
+          echo "Clippy completed successfully—no warnings found" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Rust linting passed"
+
+      # ---------------------------------------------
+      # 8. Test project
+      # ---------------------------------------------
+      - name: Test
+        run: cargo test --locked
+
+      # ---------------------------------------------
+      # 8.1. Add summary for test
+      # ---------------------------------------------
+      - name: Add test summary
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "Cargo tests completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Rust tests passed"
+
+      # ---------------------------------------------
+      # 9. Build project
+      # ---------------------------------------------
+      - name: Build
+        run: cargo build --locked
+
+      # ---------------------------------------------
+      # 9.1. Add summary for build
+      # ---------------------------------------------
+      - name: Add build summary
+        run: |
+          echo "## Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "Cargo build completed successfully—no errors" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Rust application build passed"
