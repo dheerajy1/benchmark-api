@@ -2,6 +2,8 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 use serde::Deserialize;
 
+use crate::features::v1::benchmark::workspace::config::WorkspaceRequest;
+
 // The whole targets file: { "targets": { "<id>": { ... } } }. Deliberately without Debug,
 // because header values may be literals.
 #[derive(Deserialize)]
@@ -19,6 +21,10 @@ pub struct TargetFile {
     pub startup: Option<StartupFile>,
     #[serde(default)]
     pub workload: Option<WorkloadFile>,
+    // Same shape as in a run request. A pasted env body is a secret like a header literal, the
+    // request type never prints it and the view only shows variable names.
+    #[serde(default)]
+    pub workspaces: Vec<WorkspaceRequest>,
 }
 
 #[derive(Deserialize)]

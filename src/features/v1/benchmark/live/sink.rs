@@ -15,6 +15,7 @@ pub enum Stage {
     Startup,
     Baseline,
     Workload,
+    Workspaces,
     Saving,
 }
 
@@ -27,6 +28,7 @@ impl Stage {
             Stage::Startup => "startup",
             Stage::Baseline => "baseline",
             Stage::Workload => "workload",
+            Stage::Workspaces => "workspaces",
             Stage::Saving => "saving",
         }
     }
@@ -177,6 +179,19 @@ impl RunContext {
     // The data comes from live::gauges::build_sample
     pub fn sample(&self, data: Value) {
         self.sink.emit(kind::SAMPLE, data);
+    }
+
+    // `phase` is started, sampling or finished, `status` only comes with finished
+    pub fn workspace_phase(&self, workspace: &str, mode: &str, phase: &str, status: Option<&str>) {
+        self.sink.emit(
+            kind::WORKSPACE_PHASE,
+            json!({ "workspace": workspace, "mode": mode, "phase": phase, "status": status }),
+        );
+    }
+
+    // The data comes from live::gauges::build_workspace_sample
+    pub fn workspace_sample(&self, data: Value) {
+        self.sink.emit(kind::WORKSPACE_SAMPLE, data);
     }
 
     pub fn baseline_measured(&self, memory_rss_bytes: u64, cpu_percent: f64) {

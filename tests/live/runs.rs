@@ -203,7 +203,7 @@ async fn the_run_id_exists_before_the_run_finishes_and_the_first_event_is_run_ac
     assert_eq!(replay.events[0].data["capabilities"]["cancel"], json!(true));
     assert_eq!(
         replay.events[0].data["plan"],
-        json!({ "startup": false, "workload": null })
+        json!({ "startup": false, "workload": null, "workspaces": 0 })
     );
 
     gate.store(true, Ordering::SeqCst);

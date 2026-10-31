@@ -3,7 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::features::v1::benchmark::{model::BuildCommand, validation};
+use crate::features::v1::benchmark::{
+    model::BuildCommand, validation, workspace::config::WorkspaceRequest,
+};
 
 use super::{
     file::{HeaderFile, ReadinessFile, StartupFile, TargetFile, TargetsFile, WorkloadFile},
@@ -19,6 +21,7 @@ pub struct TargetEntry {
     pub path: PathBuf,
     pub startup: Option<StartupSpec>,
     pub workload: Option<WorkloadSpec>,
+    pub workspaces: Vec<WorkspaceRequest>,
 }
 
 #[derive(Debug, Clone)]
@@ -151,6 +154,7 @@ fn build_entry(
         path: file.path,
         startup,
         workload,
+        workspaces: file.workspaces,
     };
 
     // The same checks a run applies, without overrides, so a broken target fails at startup

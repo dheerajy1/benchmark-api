@@ -65,7 +65,9 @@ First, always:
 Then every stored event with `seq > after`, in order, and then new events as they happen.
 Each event has the envelope `{ v, run_id, seq, t_ms, at, type, data }`; the events and their
 data are the contract of Phase 1 and 2 (`run.accepted`, `stage.*`, `measurement.available`,
-`baseline.measured`, `sample`, `run.completed`, `run.failed`).
+`baseline.measured`, `sample`, `workspace.phase`, `workspace.sample`, `run.completed`, `run.failed`).
+
+When the run has workspaces, `run.accepted` carries `plan.workspaces` (their number), the `workspaces` stage runs after `workload`, `workspace.phase` reports `{workspace, mode, phase, status}` with `phase` one of `started`, `sampling`, `finished` (`status` only with `finished`), and `workspace.sample` carries `{workspace, mode, elapsed_ms, memory, cpu}` about every 500 ms while a mode is sampled, with the same `memory` and `cpu` shapes as `sample`. Like `sample`, `workspace.sample` events may be evicted from the log.
 
 When a client reads so slowly that samples were evicted before it read them, a control
 frame comes first:

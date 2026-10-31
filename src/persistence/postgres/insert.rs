@@ -7,7 +7,7 @@ use super::{
     lookup::{Lookup, lookup_id},
     rows::{
         ArtifactSizeRow, BenchmarkRows, BuildRow, CpuRow, HttpLatencyRow, MemoryRow, RunRow,
-        StartupRow,
+        StartupRow, WorkspaceRow,
     },
 };
 
@@ -37,6 +37,10 @@ pub async fn insert_all(
 
     if let Some(http_latency) = &rows.http_latency {
         insert_http_latency(connection, run_id, http_latency).await?;
+    }
+
+    for workspace in &rows.workspaces {
+        insert_workspace(connection, run_id, workspace).await?;
     }
 
     Ok(())
@@ -222,6 +226,65 @@ async fn insert_http_latency(
     .bind(row.p95_ms)
     .bind(row.p99_ms)
     .bind(row.max_ms)
+    .execute(&mut *connection)
+    .await?;
+
+    Ok(())
+}
+
+async fn insert_workspace(
+    connection: &mut PgConnection,
+    run_id: Uuid,
+    row: &WorkspaceRow,
+) -> Result<(), PersistenceError> {
+    let status_id = lookup_id(connection, Lookup::Status, &row.status_code).await?;
+
+    let build_status_id = match &row.build_status_code {
+        Some(code) => Some(lookup_id(connection, Lookup::Status, code).await?),
+        None => None,
+    };
+
+    let load_status_id = match &row.load_status_code {
+        Some(code) => Some(lookup_id(connection, Lookup::Status, code).await?),
+        None => None,
+    };
+
+    let memory = row.memory.as_ref();
+    let cpu = row.cpu.as_ref();
+
+    sqlx::query(
+        "INSERT INTO benchmark_workspace_results \
+         (id, benchmark_run_id, workspace_name, mode, status_id, message, env_variable_names, \
+          build_status_id, build_duration_ms, build_exit_code, image_bytes, startup_ms, \
+          baseline_rss_bytes, peak_rss_bytes, delta_rss_bytes, \
+          cpu_baseline_percent, cpu_average_percent, cpu_peak_percent, \
+          load_status_id, load_exit_code, load_duration_ms, idle_seconds, image_disk_usage_bytes) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, \
+                 $16::float8, $17::float8, $18::float8, $19, $20, $21, $22, $23)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(run_id)
+    .bind(&row.name)
+    .bind(&row.mode)
+    .bind(status_id)
+    .bind(row.message.as_deref())
+    .bind(Json(row.env_variable_names.clone()))
+    .bind(build_status_id)
+    .bind(row.build_duration_ms)
+    .bind(row.build_exit_code)
+    .bind(row.image_bytes)
+    .bind(row.startup_ms)
+    .bind(memory.map(|memory| memory.baseline_rss_bytes))
+    .bind(memory.map(|memory| memory.peak_rss_bytes))
+    .bind(memory.map(|memory| memory.delta_rss_bytes))
+    .bind(cpu.map(|cpu| cpu.baseline_percent))
+    .bind(cpu.map(|cpu| cpu.average_percent))
+    .bind(cpu.map(|cpu| cpu.peak_percent))
+    .bind(load_status_id)
+    .bind(row.load_exit_code)
+    .bind(row.load_duration_ms)
+    .bind(row.idle_seconds)
+    .bind(row.image_disk_usage_bytes)
     .execute(&mut *connection)
     .await?;
 

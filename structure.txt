@@ -1,4 +1,4 @@
-~/dev/vs-code/benchmark-api
+~/dev/vs-code/benchmark/benchmark-api
 
 ./
 ├── .env.development
@@ -29,19 +29,25 @@
 │   ├── live-run-cancellation.md
 │   ├── live-runs-api.md
 │   ├── live-samples.md
-│   └── postgres/
-│       ├── README.md
-│       └── bootstrap.sql
+│   ├── postgres/
+│   │   ├── README.md
+│   │   └── bootstrap.sql
+│   └── saved-targets.md
 ├── migrations/
 │   ├── 20261007000001_create_schema.sql
-│   └── 20261007000002_seed_lookup_data.sql
+│   ├── 20261007000002_seed_lookup_data.sql
+│   ├── 20261024000001_create_benchmark_run_configurations.sql
+│   ├── 20261031000001_add_workspaces_to_run_configurations.sql
+│   ├── 20261031000002_create_benchmark_workspace_results.sql
+│   └── 20261031000003_add_image_disk_usage_to_workspace_results.sql
 ├── src/
 │   ├── app.rs
 │   ├── app_state.rs
 │   ├── config/
 │   │   ├── database.rs
 │   │   ├── env.rs
-│   │   └── mod.rs
+│   │   ├── mod.rs
+│   │   └── runs.rs
 │   ├── errors/
 │   │   ├── api_error.rs
 │   │   ├── catalog.rs
@@ -53,10 +59,13 @@
 │   │   ├── mod.rs
 │   │   └── v1/
 │   │       ├── benchmark/
+│   │       │   ├── configuration.rs
 │   │       │   ├── discovery.rs
+│   │       │   ├── docker.rs
 │   │       │   ├── error.rs
 │   │       │   ├── handler.rs
 │   │       │   ├── history/
+│   │       │   │   ├── config.rs
 │   │       │   │   ├── cursor.rs
 │   │       │   │   ├── error.rs
 │   │       │   │   ├── handler.rs
@@ -91,12 +100,15 @@
 │   │       │   │   ├── http_latency.rs
 │   │       │   │   ├── memory.rs
 │   │       │   │   ├── mod.rs
+│   │       │   │   ├── process_tree.rs
 │   │       │   │   └── startup_time.rs
 │   │       │   ├── mod.rs
 │   │       │   ├── model.rs
 │   │       │   ├── process_group.rs
 │   │       │   ├── readiness.rs
+│   │       │   ├── redact.rs
 │   │       │   ├── request.rs
+│   │       │   ├── run_origin.rs
 │   │       │   ├── runtime.rs
 │   │       │   ├── service.rs
 │   │       │   ├── stop.rs
@@ -108,7 +120,20 @@
 │   │       │   │   ├── mod.rs
 │   │       │   │   ├── observation.rs
 │   │       │   │   └── plan.rs
-│   │       │   └── workload_phase.rs
+│   │       │   ├── workload_phase.rs
+│   │       │   └── workspace/
+│   │       │       ├── command.rs
+│   │       │       ├── config.rs
+│   │       │       ├── container.rs
+│   │       │       ├── env_file.rs
+│   │       │       ├── exec.rs
+│   │       │       ├── mod.rs
+│   │       │       ├── mode.rs
+│   │       │       ├── native.rs
+│   │       │       ├── orchestrator.rs
+│   │       │       ├── result.rs
+│   │       │       ├── sampling.rs
+│   │       │       └── validation.rs
 │   │       ├── comparison/
 │   │       │   ├── compare.rs
 │   │       │   ├── error.rs
@@ -119,13 +144,23 @@
 │   │       │   ├── query.rs
 │   │       │   └── service.rs
 │   │       ├── mod.rs
-│   │       └── overview/
-│   │           ├── convert.rs
-│   │           ├── error.rs
+│   │       ├── overview/
+│   │       │   ├── convert.rs
+│   │       │   ├── error.rs
+│   │       │   ├── handler.rs
+│   │       │   ├── mod.rs
+│   │       │   ├── model.rs
+│   │       │   └── service.rs
+│   │       └── targets/
+│   │           ├── catalog.rs
+│   │           ├── file.rs
 │   │           ├── handler.rs
+│   │           ├── incoming.rs
 │   │           ├── mod.rs
-│   │           ├── model.rs
-│   │           └── service.rs
+│   │           ├── policy.rs
+│   │           ├── resolve.rs
+│   │           ├── secret.rs
+│   │           └── view.rs
 │   ├── lib.rs
 │   ├── main.rs
 │   ├── origin.rs
@@ -144,13 +179,15 @@
 │   │   │   ├── reconstruct.rs
 │   │   │   ├── repository.rs
 │   │   │   ├── rows.rs
+│   │   │   ├── run_configurations.rs
 │   │   │   └── summary.rs
 │   │   ├── repository.rs
 │   │   └── stored_run.rs
 │   └── schemas/
 │       ├── database.rs
 │       ├── env.rs
-│       └── mod.rs
+│       ├── mod.rs
+│       └── runs.rs
 ├── structure.txt
 ├── tests/
 │   ├── benchmark/
@@ -182,7 +219,10 @@
 │   │   ├── target_process.rs
 │   │   ├── test_server.rs
 │   │   ├── validation.rs
-│   │   └── workload.rs
+│   │   ├── workload.rs
+│   │   ├── workspace_comparison.rs
+│   │   ├── workspace_run.rs
+│   │   └── workspace_validation.rs
 │   ├── benchmark.rs
 │   ├── legacy_disconnect.rs
 │   ├── live/
@@ -203,6 +243,9 @@
 │   ├── live.rs
 │   ├── persistence/
 │   │   ├── comparison.rs
+│   │   ├── configuration.rs
+│   │   ├── configuration_http.rs
+│   │   ├── configuration_secrets.rs
 │   │   ├── constraints.rs
 │   │   ├── history.rs
 │   │   ├── mapping.rs
@@ -210,11 +253,22 @@
 │   │   ├── overview.rs
 │   │   ├── repository.rs
 │   │   ├── sample.rs
+│   │   ├── support.rs
+│   │   └── workspace.rs
+│   ├── persistence.rs
+│   ├── targets/
+│   │   ├── canary.rs
+│   │   ├── compat.rs
+│   │   ├── configuration.rs
+│   │   ├── file.rs
+│   │   ├── http.rs
+│   │   ├── redaction.rs
+│   │   ├── settings.rs
 │   │   └── support.rs
-│   └── persistence.rs
+│   └── targets.rs
 └── xtask/
     ├── Cargo.toml
     └── src/
         └── main.rs
 
-28 directories, 188 files
+31 directories, 239 files

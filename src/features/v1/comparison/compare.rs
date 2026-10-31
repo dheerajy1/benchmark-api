@@ -1,7 +1,10 @@
 use chrono::SecondsFormat;
 
 use crate::{
-    features::v1::benchmark::model::{ArtifactSizeCategory, BenchmarkResult, HttpLatency},
+    features::v1::benchmark::{
+        model::{ArtifactSizeCategory, BenchmarkResult, HttpLatency},
+        workspace::result::WorkspaceResult,
+    },
     persistence::stored_run::StoredRun,
 };
 
@@ -10,7 +13,7 @@ use super::{
     model::{
         ArtifactCategoryComparison, ArtifactSizeComparison, BuildTimeComparison, ComparisonMetrics,
         ComparisonResponse, CpuComparison, HttpLatencyComparison, MemoryComparison, RunReference,
-        StartupTimeComparison,
+        StartupTimeComparison, WorkspaceComparison,
     },
 };
 
@@ -96,8 +99,97 @@ pub fn compare(baseline: &StoredRun, comparison: &StoredRun) -> ComparisonRespon
                 build: category(base, comp, |run| &run.metrics.artifact_size.build),
                 excluded: category(base, comp, |run| &run.metrics.artifact_size.excluded),
             },
+            workspaces: compare_workspaces(base, comp),
         },
     }
+}
+
+// The workspace results of both runs matched by name and mode, in the order they first appear:
+// the baseline's, then those only the comparison has
+fn compare_workspaces(
+    baseline: &BenchmarkResult,
+    comparison: &BenchmarkResult,
+) -> Vec<WorkspaceComparison> {
+    let mut keys: Vec<(&str, &str)> = Vec::new();
+
+    for workspace in baseline
+        .metrics
+        .workspaces
+        .iter()
+        .chain(&comparison.metrics.workspaces)
+    {
+        let key = (workspace.name.as_str(), workspace.mode.as_str());
+
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    }
+
+    keys.into_iter()
+        .map(|(name, mode)| {
+            let base = find_workspace(baseline, name, mode);
+            let comp = find_workspace(comparison, name, mode);
+
+            compare_workspace(name, mode, base, comp)
+        })
+        .collect()
+}
+
+fn find_workspace<'a>(
+    run: &'a BenchmarkResult,
+    name: &str,
+    mode: &str,
+) -> Option<&'a WorkspaceResult> {
+    run.metrics
+        .workspaces
+        .iter()
+        .find(|workspace| workspace.name == name && workspace.mode == mode)
+}
+
+fn compare_workspace(
+    name: &str,
+    mode: &str,
+    base: Option<&WorkspaceResult>,
+    comp: Option<&WorkspaceResult>,
+) -> WorkspaceComparison {
+    let lower = Direction::LowerIsBetter;
+
+    let integer = |read: fn(&WorkspaceResult) -> Option<u64>| {
+        metric::integer(
+            comparable(base).and_then(read),
+            comparable(comp).and_then(read),
+            lower,
+        )
+    };
+
+    let decimal = |read: fn(&WorkspaceResult) -> Option<f64>| {
+        metric::decimal(
+            comparable(base).and_then(read),
+            comparable(comp).and_then(read),
+            lower,
+        )
+    };
+
+    WorkspaceComparison {
+        name: name.to_string(),
+        mode: mode.to_string(),
+        baseline_status: base.map(|workspace| workspace.status.clone()),
+        comparison_status: comp.map(|workspace| workspace.status.clone()),
+        image_bytes: integer(|w| w.image.as_ref().map(|image| image.bytes)),
+        build_duration_ms: integer(|w| w.build.as_ref().map(|build| build.duration_ms)),
+        startup_duration_ms: integer(|w| w.startup.as_ref().map(|startup| startup.duration_ms)),
+        baseline_rss_bytes: integer(|w| w.memory.as_ref().map(|m| m.baseline.rss_bytes)),
+        peak_rss_bytes: integer(|w| w.memory.as_ref().map(|m| m.peak.rss_bytes)),
+        delta_rss_bytes: integer(|w| w.memory.as_ref().map(|m| m.delta.rss_bytes)),
+        cpu_baseline_percent: decimal(|w| w.cpu.as_ref().map(|c| c.baseline_percent)),
+        cpu_average_percent: decimal(|w| w.cpu.as_ref().map(|c| c.average_percent)),
+        cpu_peak_percent: decimal(|w| w.cpu.as_ref().map(|c| c.peak_percent)),
+    }
+}
+
+// Only a mode that succeeded has comparable numbers
+fn comparable(workspace: Option<&WorkspaceResult>) -> Option<&WorkspaceResult> {
+    workspace.filter(|workspace| workspace.status == STATUS_SUCCESS)
 }
 
 fn reference(run: &StoredRun) -> RunReference {

@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::{
     features::v1::benchmark::configuration::{
         ReadinessConfiguration, ReadinessSummary, RunConfiguration, StartupConfiguration,
-        StartupSummary, WorkloadConfiguration,
+        StartupSummary, WorkloadConfiguration, WorkspaceConfiguration,
     },
     persistence::{
         error::PersistenceError,
@@ -19,7 +19,7 @@ const SELECT_COLUMNS: &str = "c.source, c.target_id, c.target_name, c.target_pat
     c.readiness_path, c.readiness_method, c.readiness_expected_status, \
     c.readiness_header_names, c.workload_method, c.workload_path, c.workload_mode, \
     c.workload_requests, c.workload_duration_seconds, c.workload_concurrency, \
-    c.workload_header_names";
+    c.workload_header_names, c.workspaces";
 
 // Writes the configuration of one run on the caller's transaction, so it is stored
 // with the run or not at all
@@ -43,10 +43,10 @@ pub async fn insert(
             readiness_type, readiness_host, readiness_port, readiness_path,
             readiness_method, readiness_expected_status, readiness_header_names,
             workload_method, workload_path, workload_mode, workload_requests,
-            workload_duration_seconds, workload_concurrency, workload_header_names
+            workload_duration_seconds, workload_concurrency, workload_header_names, workspaces
          ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-            $15, $16, $17, $18, $19, $20, $21
+            $15, $16, $17, $18, $19, $20, $21, $22
          )",
     )
     .bind(run_id)
@@ -70,6 +70,7 @@ pub async fn insert(
     .bind(duration)
     .bind(concurrency)
     .bind(workload.map(|workload| workload.header_names.clone()))
+    .bind(Json(configuration.workspaces.clone()))
     .execute(&mut *connection)
     .await?;
 
@@ -246,6 +247,10 @@ fn from_row(row: &PgRow) -> Result<RunConfiguration, PersistenceError> {
         target_path: required_string(row, "target_path")?,
         startup,
         workload,
+        workspaces: row
+            .try_get::<Option<Json<Vec<WorkspaceConfiguration>>>, _>("workspaces")?
+            .map(|Json(workspaces)| workspaces)
+            .unwrap_or_default(),
     })
 }
 

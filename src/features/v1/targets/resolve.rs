@@ -133,6 +133,7 @@ pub fn build_request(
         path: entry.path.clone(),
         startup,
         workload,
+        workspaces: entry.workspaces.clone(),
     }
 }
 

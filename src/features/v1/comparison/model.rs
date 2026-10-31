@@ -30,6 +30,9 @@ pub struct ComparisonMetrics {
     pub cpu: CpuComparison,
     pub http_latency: HttpLatencyComparison,
     pub artifact_size: ArtifactSizeComparison,
+    // One entry per workspace and mode that either run has, left out when neither had one
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub workspaces: Vec<WorkspaceComparison>,
 }
 
 // The statuses explain why a side is null, for example no_build_command
@@ -83,4 +86,24 @@ pub struct ArtifactSizeComparison {
 pub struct ArtifactCategoryComparison {
     pub bytes: IntegerMetric,
     pub file_count: IntegerMetric,
+}
+
+// One workspace in one mode (native or docker), matched by name and mode across the two runs.
+// A status is null when that run did not have the workspace in that mode. Numbers only count
+// for a mode that succeeded, a failed one is not a comparable result.
+#[derive(Serialize)]
+pub struct WorkspaceComparison {
+    pub name: String,
+    pub mode: String,
+    pub baseline_status: Option<String>,
+    pub comparison_status: Option<String>,
+    pub image_bytes: IntegerMetric,
+    pub build_duration_ms: IntegerMetric,
+    pub startup_duration_ms: IntegerMetric,
+    pub baseline_rss_bytes: IntegerMetric,
+    pub peak_rss_bytes: IntegerMetric,
+    pub delta_rss_bytes: IntegerMetric,
+    pub cpu_baseline_percent: DecimalMetric,
+    pub cpu_average_percent: DecimalMetric,
+    pub cpu_peak_percent: DecimalMetric,
 }

@@ -6,6 +6,7 @@ use super::{
         headers,
         plan::{DEFAULT_REQUEST_TIMEOUT, WorkloadPlan},
     },
+    workspace,
 };
 
 // Rejects invalid configuration before anything is built or started
@@ -18,6 +19,8 @@ pub fn validate(request: &BenchmarkRequest) -> Result<(), String> {
         // Host and port only matter at runtime, the rest is checked here
         WorkloadPlan::new(workload, "127.0.0.1", 1, DEFAULT_REQUEST_TIMEOUT)?;
     }
+
+    workspace::validation::validate_all(&request.workspaces)?;
 
     Ok(())
 }

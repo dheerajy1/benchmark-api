@@ -31,6 +31,7 @@ fn serializes_benchmark_result() {
             build: None,
         },
         metrics: Metrics {
+            workspaces: Vec::new(),
             artifact_size: ArtifactSize {
                 source: ArtifactSizeCategory {
                     bytes: 100,
@@ -220,6 +221,7 @@ fn serializes_benchmark_result() {
 #[test]
 fn serializes_absent_runtime_metrics_as_null() {
     let metrics = Metrics {
+        workspaces: Vec::new(),
         artifact_size: ArtifactSize {
             source: ArtifactSizeCategory {
                 bytes: 0,

@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 use uuid::Uuid;
 
@@ -6,11 +9,16 @@ use crate::config::env::Env;
 
 use super::{
     discovery,
+    docker::DockerCli,
     error::BenchmarkError,
     live::{Metric, RunContext, RunPermit, Stage},
-    metrics::{artifact_size, build_time},
+    metrics::{artifact_size, build_time, memory::MemoryConfig},
     model::{BenchmarkRequest, BenchmarkResult, Metrics, Target},
     runtime, validation,
+    workspace::{
+        orchestrator,
+        result::{STATUS_SUCCESS as WORKSPACE_SUCCESS, WorkspaceResult},
+    },
 };
 
 // Status reported for a step that has no status of its own
@@ -21,7 +29,13 @@ const STATUS_SUCCESS: &str = "success";
 pub fn prepare(request: &BenchmarkRequest) -> Result<PathBuf, BenchmarkError> {
     validation::validate(request).map_err(BenchmarkError::Validation)?;
 
-    prepare_target(&request.path)
+    let target = prepare_target(&request.path)?;
+
+    // A workspace that is already running is refused before anything starts
+    orchestrator::precheck(&target, &request.workspaces, &DockerCli)
+        .map_err(BenchmarkError::Conflict)?;
+
+    Ok(target)
 }
 
 // The original entry point, unchanged. It does not take part in the execution slot, so
@@ -79,6 +93,9 @@ fn run_core(
     let runtime_metrics =
         runtime::run_observed(target, discovery.runtime.as_deref(), request, env, ctx)?;
 
+    // The main project has finished and shut down, the workspaces follow one at a time
+    let workspaces = run_workspaces(target, request, ctx)?;
+
     Ok(BenchmarkResult {
         run_id,
         target: Target {
@@ -92,8 +109,49 @@ fn run_core(
             memory: runtime_metrics.memory,
             cpu: runtime_metrics.cpu,
             http_latency: runtime_metrics.http_latency,
+            workspaces,
         },
     })
+}
+
+fn run_workspaces(
+    target: &Path,
+    request: &BenchmarkRequest,
+    ctx: &RunContext,
+) -> Result<Vec<WorkspaceResult>, BenchmarkError> {
+    if request.workspaces.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    ctx.check_cancelled()?;
+    ctx.stage_started(Stage::Workspaces);
+
+    let started = Instant::now();
+
+    let results = orchestrator::run_all(
+        target,
+        &request.workspaces,
+        &DockerCli,
+        &MemoryConfig::default(),
+        ctx,
+    )?;
+
+    let status = if results
+        .iter()
+        .all(|result| result.status == WORKSPACE_SUCCESS)
+    {
+        STATUS_SUCCESS
+    } else {
+        "failed"
+    };
+
+    ctx.stage_completed(
+        Stage::Workspaces,
+        status,
+        u64::try_from(started.elapsed().as_millis()).ok(),
+    );
+
+    Ok(results)
 }
 
 fn prepare_target(path: &Path) -> Result<PathBuf, BenchmarkError> {

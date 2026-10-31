@@ -6,11 +6,13 @@ use crate::{
         ArtifactSize, ArtifactSizeCategory, BenchmarkResult, BuildTime, Cpu, HttpLatency, Memory,
         StartupTime,
     },
+    features::v1::benchmark::workspace::result::WorkspaceResult,
     persistence::error::PersistenceError,
 };
 
 use super::rows::{
-    ArtifactSizeRow, BenchmarkRows, BuildRow, CpuRow, HttpLatencyRow, MemoryRow, RunRow, StartupRow,
+    ArtifactSizeRow, BenchmarkRows, BuildRow, CpuRow, HttpLatencyRow, MemoryRow, RunRow,
+    StartupRow, WorkspaceRow,
 };
 
 pub const ARTIFACT_SOURCE: &str = "source";
@@ -40,6 +42,12 @@ pub fn map_result(result: &BenchmarkResult) -> Result<BenchmarkRows, Persistence
             .as_ref()
             .map(map_http_latency)
             .transpose()?,
+        workspaces: result
+            .metrics
+            .workspaces
+            .iter()
+            .map(map_workspace)
+            .collect::<Result<Vec<_>, _>>()?,
     })
 }
 
@@ -187,5 +195,50 @@ fn map_http_latency(latency: &HttpLatency) -> Result<HttpLatencyRow, Persistence
         p95_ms: latency.p95_ms,
         p99_ms: latency.p99_ms,
         max_ms: latency.max_ms,
+    })
+}
+
+fn map_workspace(workspace: &WorkspaceResult) -> Result<WorkspaceRow, PersistenceError> {
+    let build = workspace.build.as_ref();
+    let load = workspace.load.as_ref();
+
+    Ok(WorkspaceRow {
+        name: workspace.name.clone(),
+        mode: workspace.mode.clone(),
+        status_code: workspace.status.clone(),
+        message: workspace.message.clone(),
+        env_variable_names: workspace.env_variable_names.clone(),
+        build_status_code: build.map(|build| build.status.clone()),
+        build_duration_ms: build
+            .map(|build| to_i64("workspace.build.duration_ms", build.duration_ms))
+            .transpose()?,
+        build_exit_code: build.and_then(|build| build.exit_code),
+        image_bytes: workspace
+            .image
+            .as_ref()
+            .map(|image| to_i64("workspace.image.bytes", image.bytes))
+            .transpose()?,
+        image_disk_usage_bytes: workspace
+            .image
+            .as_ref()
+            .and_then(|image| image.disk_usage_bytes)
+            .map(|bytes| to_i64("workspace.image.disk_usage_bytes", bytes))
+            .transpose()?,
+        startup_ms: workspace
+            .startup
+            .as_ref()
+            .map(|startup| to_i64("workspace.startup.duration_ms", startup.duration_ms))
+            .transpose()?,
+        memory: workspace.memory.as_ref().map(map_memory).transpose()?,
+        cpu: workspace.cpu.as_ref().map(map_cpu),
+        load_status_code: load.map(|load| load.status.clone()),
+        load_exit_code: load.and_then(|load| load.exit_code),
+        load_duration_ms: load
+            .map(|load| to_i64("workspace.load.duration_ms", load.duration_ms))
+            .transpose()?,
+        idle_seconds: workspace
+            .idle_seconds
+            .map(|seconds| to_i64("workspace.idle_seconds", seconds))
+            .transpose()?,
     })
 }

@@ -60,6 +60,7 @@ fn request_with_secrets() -> BenchmarkRequest {
             duration_seconds: Some(30),
             concurrency: 50,
         }),
+        workspaces: Vec::new(),
     }
 }
 

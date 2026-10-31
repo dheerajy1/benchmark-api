@@ -45,6 +45,31 @@ pub fn parse_stat(stat: &str) -> Option<StatTicks> {
     })
 }
 
+// Reads user + system ticks of a process and everything below it
+pub fn read_tree_ticks(root: u32) -> Result<Vec<ProcessTicks>, String> {
+    let members = crate::features::v1::benchmark::metrics::process_tree::tree_members(root)?;
+
+    let readings: Vec<ProcessTicks> = members
+        .into_iter()
+        .filter_map(|pid| {
+            // A process may exit between listing and reading, skip it
+            let stat = fs::read_to_string(format!("{PROC_ROOT}/{pid}/stat")).ok()?;
+            let parsed = parse_stat(&stat)?;
+
+            Some(ProcessTicks {
+                pid,
+                ticks: parsed.total(),
+            })
+        })
+        .collect();
+
+    if readings.is_empty() {
+        return Err("No live processes found in the process tree".to_string());
+    }
+
+    Ok(readings)
+}
+
 // Reads user + system ticks of every live process in the process group
 pub fn read_group_ticks(group_id: u32) -> Result<Vec<ProcessTicks>, String> {
     read_group_ticks_in(Path::new(PROC_ROOT), group_id)

@@ -42,6 +42,7 @@ fn runs_benchmark_and_assembles_result() {
         path: temp_dir.path().to_path_buf(),
         startup: None,
         workload: None,
+        workspaces: Vec::new(),
     };
 
     let result = service::run(&request, &test_env()).unwrap();

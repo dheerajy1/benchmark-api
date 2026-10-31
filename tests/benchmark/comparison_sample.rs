@@ -16,6 +16,7 @@ pub fn result(run_id: Uuid) -> BenchmarkResult {
             build: None,
         },
         metrics: Metrics {
+            workspaces: Vec::new(),
             artifact_size: ArtifactSize {
                 source: category(1000, 10),
                 build: category(2000, 20),

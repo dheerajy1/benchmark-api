@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-use super::request::{StartupRequest, WorkloadRequest};
+use super::{
+    request::{StartupRequest, WorkloadRequest},
+    workspace::{config::WorkspaceRequest, result::WorkspaceResult},
+};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BenchmarkRequest {
@@ -11,6 +14,9 @@ pub struct BenchmarkRequest {
     pub startup: Option<StartupRequest>,
     #[serde(default)]
     pub workload: Option<WorkloadRequest>,
+    // Extra processes measured after the main project, empty for most projects
+    #[serde(default)]
+    pub workspaces: Vec<WorkspaceRequest>,
 }
 
 #[derive(Clone, Serialize)]
@@ -40,6 +46,10 @@ pub struct Metrics {
     pub memory: Option<Memory>,
     pub cpu: Option<Cpu>,
     pub http_latency: Option<HttpLatency>,
+    // One entry per workspace and mode. Left out of the JSON when the run had no workspace, so
+    // the response of a project without workspaces is exactly what it was before.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub workspaces: Vec<WorkspaceResult>,
 }
 
 #[derive(Clone, Serialize)]
@@ -96,14 +106,14 @@ pub struct BuildCommand {
     pub args: Vec<String>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Memory {
     pub baseline: MemoryReading,
     pub peak: MemoryReading,
     pub delta: MemoryReading,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MemoryReading {
     pub rss_bytes: u64,
     pub rss_size: String,

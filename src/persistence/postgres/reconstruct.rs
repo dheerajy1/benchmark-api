@@ -8,13 +8,16 @@ use crate::{
             Discovery, HttpLatency, Memory, MemoryReading, Metrics, StartupReadiness, StartupTime,
             Target,
         },
+        workspace::result::{
+            ImageSize, LoadResult, WorkspaceBuild, WorkspaceResult, WorkspaceStartup,
+        },
     },
     persistence::error::PersistenceError,
 };
 
 use super::{
     mapping::{ARTIFACT_BUILD, ARTIFACT_EXCLUDED, ARTIFACT_SOURCE},
-    rows::{BuildRow, CpuRow, HttpLatencyRow, MemoryRow, RunRow, StartupRow},
+    rows::{BuildRow, CpuRow, HttpLatencyRow, MemoryRow, RunRow, StartupRow, WorkspaceRow},
 };
 
 // One artifact_sizes row joined with its artifact type code
@@ -33,6 +36,7 @@ pub struct StoredBenchmark {
     pub memory: Option<MemoryRow>,
     pub cpu: Option<CpuRow>,
     pub http_latency: Option<HttpLatencyRow>,
+    pub workspaces: Vec<WorkspaceRow>,
 }
 
 // Rebuilds the exact BenchmarkResult the POST endpoint returned, formatted strings included
@@ -54,6 +58,11 @@ pub fn to_result(stored: StoredBenchmark) -> Result<BenchmarkResult, Persistence
             memory: stored.memory.map(rebuild_memory).transpose()?,
             cpu: stored.cpu.map(rebuild_cpu),
             http_latency: stored.http_latency.map(rebuild_http_latency).transpose()?,
+            workspaces: stored
+                .workspaces
+                .into_iter()
+                .map(rebuild_workspace)
+                .collect::<Result<Vec<_>, _>>()?,
         },
     })
 }
@@ -163,6 +172,56 @@ fn rebuild_readiness(row: &StartupRow) -> Result<Option<StartupReadiness>, Persi
             ))
         })?,
     }))
+}
+
+fn rebuild_workspace(row: WorkspaceRow) -> Result<WorkspaceResult, PersistenceError> {
+    let build = match (row.build_status_code, row.build_duration_ms) {
+        (Some(status), Some(duration_ms)) => Some(WorkspaceBuild {
+            status,
+            duration_ms: to_u64("workspace.build.duration_ms", duration_ms)?,
+            exit_code: row.build_exit_code,
+        }),
+        _ => None,
+    };
+
+    let load = match (row.load_status_code, row.load_duration_ms) {
+        (Some(status), Some(duration_ms)) => Some(LoadResult {
+            status,
+            exit_code: row.load_exit_code,
+            duration_ms: to_u64("workspace.load.duration_ms", duration_ms)?,
+        }),
+        _ => None,
+    };
+
+    let disk_usage_bytes = optional_u64(
+        "workspace.image.disk_usage_bytes",
+        row.image_disk_usage_bytes,
+    )?;
+
+    let image = optional_u64("workspace.image.bytes", row.image_bytes)?.map(|bytes| ImageSize {
+        bytes,
+        size: format_size(bytes),
+        disk_usage_bytes,
+        disk_usage: disk_usage_bytes.map(format_size),
+    });
+
+    let startup = optional_u64("workspace.startup.duration_ms", row.startup_ms)?
+        .map(|duration_ms| WorkspaceStartup { duration_ms });
+
+    Ok(WorkspaceResult {
+        name: row.name,
+        mode: row.mode,
+        status: row.status_code,
+        message: row.message,
+        env_variable_names: row.env_variable_names,
+        build,
+        image,
+        startup,
+        memory: row.memory.map(rebuild_memory).transpose()?,
+        cpu: row.cpu.map(rebuild_cpu),
+        load,
+        idle_seconds: optional_u64("workspace.idle_seconds", row.idle_seconds)?,
+    })
 }
 
 fn rebuild_memory(row: MemoryRow) -> Result<Memory, PersistenceError> {

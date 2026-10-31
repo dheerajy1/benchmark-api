@@ -1,5 +1,6 @@
 pub mod configuration;
 pub mod discovery;
+pub mod docker;
 pub mod error;
 pub mod handler;
 pub mod history;
@@ -19,3 +20,4 @@ pub mod target_process;
 pub mod validation;
 pub mod workload;
 pub mod workload_phase;
+pub mod workspace;

@@ -248,7 +248,11 @@ fn plan_of(request: &BenchmarkRequest) -> Value {
         }
     });
 
-    json!({ "startup": request.startup.is_some(), "workload": workload })
+    json!({
+        "startup": request.startup.is_some(),
+        "workload": workload,
+        "workspaces": request.workspaces.len(),
+    })
 }
 
 // What the supervisor owns for the whole life of a run: the run's log and the slot.

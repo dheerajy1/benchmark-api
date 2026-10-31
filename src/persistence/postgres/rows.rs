@@ -11,6 +11,7 @@ pub struct BenchmarkRows {
     pub memory: Option<MemoryRow>,
     pub cpu: Option<CpuRow>,
     pub http_latency: Option<HttpLatencyRow>,
+    pub workspaces: Vec<WorkspaceRow>,
 }
 
 pub struct RunRow {
@@ -79,4 +80,25 @@ pub struct HttpLatencyRow {
     pub p95_ms: Option<f64>,
     pub p99_ms: Option<f64>,
     pub max_ms: Option<f64>,
+}
+
+// One mode of one workspace. The memory and CPU rows are the same shape the main project uses.
+pub struct WorkspaceRow {
+    pub name: String,
+    pub mode: String,
+    pub status_code: String,
+    pub message: Option<String>,
+    pub env_variable_names: Vec<String>,
+    pub build_status_code: Option<String>,
+    pub build_duration_ms: Option<i64>,
+    pub build_exit_code: Option<i32>,
+    pub image_bytes: Option<i64>,
+    pub image_disk_usage_bytes: Option<i64>,
+    pub startup_ms: Option<i64>,
+    pub memory: Option<MemoryRow>,
+    pub cpu: Option<CpuRow>,
+    pub load_status_code: Option<String>,
+    pub load_exit_code: Option<i32>,
+    pub load_duration_ms: Option<i64>,
+    pub idle_seconds: Option<i64>,
 }

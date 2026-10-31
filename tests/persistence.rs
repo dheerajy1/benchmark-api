@@ -11,4 +11,5 @@ mod persistence {
     pub mod repository;
     pub mod sample;
     pub mod support;
+    pub mod workspace;
 }

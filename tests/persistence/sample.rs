@@ -16,6 +16,7 @@ pub fn result() -> BenchmarkResult {
             build: Some("bun run build".to_string()),
         },
         metrics: Metrics {
+            workspaces: Vec::new(),
             artifact_size: ArtifactSize {
                 source: category(100, 1),
                 build: category(200, 2),
@@ -140,6 +141,7 @@ pub fn configuration() -> benchmark_api::features::v1::benchmark::configuration:
         target_path: "/absolute/path/to/project".to_string(),
         startup: None,
         workload: None,
+        workspaces: Vec::new(),
     }
 }
 
@@ -180,5 +182,6 @@ pub fn target_configuration()
             concurrency: 50,
             header_names: vec!["X-Client-Secret".to_string()],
         }),
+        workspaces: Vec::new(),
     }
 }

@@ -29,9 +29,23 @@ flowchart TD
     W --> M
     J --> M
     N --> R
-    M --> R[Assemble BenchmarkResult]
+    M --> X{Workspaces given?}
+    X -- no --> R
+    X -- yes --> Y[Workspaces, one at a time]
+    Y --> R[Assemble BenchmarkResult]
     R --> S[(Store in PostgreSQL, one transaction)]
 ```
+
+## Workspaces
+
+Workspaces are optional. They run after the main project has finished and shut down, one workspace at a time, native first and Docker second, never together.
+
+1. Pre-check, before anything starts: when a copy of a workspace is already running the whole run is refused with `409 CONFLICT` and says what to stop.
+2. Prepare the environment: read the env file or parse the pasted text into a variable map.
+3. Native, if enabled: run the optional build command, start the command with that environment, wait for the ready log line, stabilize, read the baseline, then run the load command or idle for `idle_seconds` while RSS and CPU are sampled every 100 ms, then stop the process group.
+4. Docker, if enabled: run the build command (own timeout) and record its time, read the image size, write the variables to a temporary owner-only file, run the container, wait for the ready line in its logs, find the container's main process and measure it and its children from `/proc`, the same way the native process is measured. Remove the container and delete the temporary file.
+
+Everything a workspace started is stopped before the next step, also after a failure or a cancel. A mode that fails to build, start or become ready records `failed` or `timeout` with `null` numbers, and the other mode still runs.
 
 ## Rules
 
@@ -54,7 +68,8 @@ data
     ├── startup_time
     ├── memory
     ├── cpu
-    └── http_latency
+    ├── http_latency
+    └── workspaces        (only when the run had workspaces)
 ```
 
 `run_id` is a UUIDv7. Its embedded timestamp is the stored `created_at` of the run.

@@ -242,6 +242,24 @@ pub fn read_group_rss(group_id: u32) -> Result<u64, String> {
     Ok(total)
 }
 
+// Sums RSS of a process and everything below it, used for a container's process tree
+pub fn read_tree_rss(root: u32) -> Result<u64, String> {
+    let members = super::process_tree::tree_members(root)?;
+
+    let mut total = 0u64;
+
+    for pid in members {
+        // A process may exit between listing and reading, skip it
+        if let Ok(status) = fs::read_to_string(format!("/proc/{pid}/status"))
+            && let Some(bytes) = parse_vm_rss_bytes(&status)
+        {
+            total += bytes;
+        }
+    }
+
+    Ok(total)
+}
+
 // Field 5 of /proc/<pid>/stat, parsed after the last ')' because comm may contain spaces
 pub fn parse_group_id(stat: &str) -> Option<u32> {
     let end = stat.rfind(')')?;

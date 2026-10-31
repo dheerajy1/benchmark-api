@@ -9,6 +9,8 @@ pub enum BenchmarkError {
     Validation(String),
     // Target path missing or not a directory
     InvalidPath(String),
+    // A copy of a workspace is already running, the person has to stop it
+    Conflict(String),
     // Failure while running the benchmark itself
     Internal(String),
     // The run was stopped on request, only a live run can be cancelled
@@ -20,6 +22,7 @@ impl fmt::Display for BenchmarkError {
         match self {
             BenchmarkError::Validation(message)
             | BenchmarkError::InvalidPath(message)
+            | BenchmarkError::Conflict(message)
             | BenchmarkError::Internal(message) => formatter.write_str(message),
             BenchmarkError::Cancelled => formatter.write_str("The benchmark was cancelled."),
         }
@@ -41,7 +44,7 @@ impl From<BenchmarkError> for ApiError {
             BenchmarkError::Validation(_) => ErrorCode::ValidationError,
             BenchmarkError::InvalidPath(_) => ErrorCode::BadRequest,
             BenchmarkError::Internal(_) => ErrorCode::InternalServerError,
-            BenchmarkError::Cancelled => ErrorCode::Conflict,
+            BenchmarkError::Conflict(_) | BenchmarkError::Cancelled => ErrorCode::Conflict,
         };
 
         ApiError::new(code, error.to_string())

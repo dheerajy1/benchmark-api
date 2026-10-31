@@ -10,7 +10,7 @@ use crate::{
 
 use super::{
     reconstruct::{StoredArtifactSize, StoredBenchmark, to_result},
-    rows::{BuildRow, CpuRow, HttpLatencyRow, MemoryRow, RunRow, StartupRow},
+    rows::{BuildRow, CpuRow, HttpLatencyRow, MemoryRow, RunRow, StartupRow, WorkspaceRow},
 };
 
 // One row per run with every one-to-one table of the run, the caller adds the WHERE clause. NUMERIC columns are cast to float8.
@@ -53,6 +53,23 @@ const SELECT_ARTIFACT_SIZES: &str = "SELECT a.benchmark_run_id, t.code, a.bytes,
      JOIN artifact_types t ON t.id = a.artifact_type_id \
      WHERE a.benchmark_run_id = ANY($1)";
 
+// Workspace results of the requested runs, in the order they were stored (ids are UUIDv7)
+const SELECT_WORKSPACES: &str = "SELECT w.benchmark_run_id, w.workspace_name, w.mode, \
+     s.code AS status_code, w.message, w.env_variable_names, \
+     bs.code AS build_status_code, w.build_duration_ms, w.build_exit_code, \
+     w.image_bytes, w.image_disk_usage_bytes, w.startup_ms, \
+     w.baseline_rss_bytes, w.peak_rss_bytes, w.delta_rss_bytes, \
+     w.cpu_baseline_percent::float8 AS cpu_baseline_percent, \
+     w.cpu_average_percent::float8 AS cpu_average_percent, \
+     w.cpu_peak_percent::float8 AS cpu_peak_percent, \
+     ls.code AS load_status_code, w.load_exit_code, w.load_duration_ms, w.idle_seconds \
+     FROM benchmark_workspace_results w \
+     JOIN benchmark_statuses s ON s.id = w.status_id \
+     LEFT JOIN benchmark_statuses bs ON bs.id = w.build_status_id \
+     LEFT JOIN benchmark_statuses ls ON ls.id = w.load_status_id \
+     WHERE w.benchmark_run_id = ANY($1) \
+     ORDER BY w.id";
+
 // Reads one run from the normalized tables and rebuilds the POST result, None when absent
 pub async fn get(pool: &PgPool, run_id: Uuid) -> Result<Option<BenchmarkResult>, PersistenceError> {
     let runs = get_many(pool, &[run_id]).await?;
@@ -73,14 +90,16 @@ pub async fn get_many(pool: &PgPool, run_ids: &[Uuid]) -> Result<Vec<StoredRun>,
         .await?;
 
     let mut artifact_sizes = fetch_artifact_sizes(&mut connection, run_ids).await?;
+    let mut workspaces = fetch_workspaces(&mut connection, run_ids).await?;
 
     let mut runs = Vec::with_capacity(rows.len());
 
     for row in &rows {
         let run_id: Uuid = row.try_get("id")?;
         let sizes = artifact_sizes.remove(&run_id).unwrap_or_default();
+        let run_workspaces = workspaces.remove(&run_id).unwrap_or_default();
 
-        let stored = decode(row, sizes)?;
+        let stored = decode(row, sizes, run_workspaces)?;
         let created_at = stored.run.created_at;
 
         runs.push(StoredRun {
@@ -116,6 +135,71 @@ async fn fetch_artifact_sizes(
     Ok(grouped)
 }
 
+async fn fetch_workspaces(
+    connection: &mut PgConnection,
+    run_ids: &[Uuid],
+) -> Result<HashMap<Uuid, Vec<WorkspaceRow>>, PersistenceError> {
+    let rows = sqlx::query(SELECT_WORKSPACES)
+        .bind(run_ids)
+        .fetch_all(&mut *connection)
+        .await?;
+
+    let mut grouped: HashMap<Uuid, Vec<WorkspaceRow>> = HashMap::new();
+
+    for row in &rows {
+        let run_id: Uuid = row.try_get("benchmark_run_id")?;
+
+        grouped
+            .entry(run_id)
+            .or_default()
+            .push(decode_workspace(row)?);
+    }
+
+    Ok(grouped)
+}
+
+fn decode_workspace(row: &PgRow) -> Result<WorkspaceRow, PersistenceError> {
+    let names: Json<Vec<String>> = row.try_get("env_variable_names")?;
+
+    let memory = match row.try_get::<Option<i64>, _>("baseline_rss_bytes")? {
+        None => None,
+        Some(baseline_rss_bytes) => Some(MemoryRow {
+            baseline_rss_bytes,
+            peak_rss_bytes: row.try_get("peak_rss_bytes")?,
+            delta_rss_bytes: row.try_get("delta_rss_bytes")?,
+        }),
+    };
+
+    let cpu = match row.try_get::<Option<f64>, _>("cpu_baseline_percent")? {
+        None => None,
+        Some(baseline_percent) => Some(CpuRow {
+            baseline_percent,
+            average_percent: row.try_get("cpu_average_percent")?,
+            peak_percent: row.try_get("cpu_peak_percent")?,
+        }),
+    };
+
+    Ok(WorkspaceRow {
+        name: row.try_get("workspace_name")?,
+        mode: row.try_get("mode")?,
+        status_code: row.try_get("status_code")?,
+        message: row.try_get("message")?,
+        env_variable_names: names.0,
+        build_status_code: row.try_get("build_status_code")?,
+        build_duration_ms: row.try_get("build_duration_ms")?,
+        build_exit_code: row.try_get("build_exit_code")?,
+        image_bytes: row.try_get("image_bytes")?,
+        image_disk_usage_bytes: row.try_get("image_disk_usage_bytes")?,
+        startup_ms: row.try_get("startup_ms")?,
+        memory,
+        cpu,
+        load_status_code: row.try_get("load_status_code")?,
+        load_exit_code: row.try_get("load_exit_code")?,
+        load_duration_ms: row.try_get("load_duration_ms")?,
+        idle_seconds: row.try_get("idle_seconds")?,
+    })
+}
+
 fn missing_row(table: &str, run_id: Uuid) -> PersistenceError {
     PersistenceError::InvalidResult(format!("run {run_id} has no {table} row"))
 }
@@ -123,6 +207,7 @@ fn missing_row(table: &str, run_id: Uuid) -> PersistenceError {
 fn decode(
     row: &PgRow,
     artifact_sizes: Vec<StoredArtifactSize>,
+    workspaces: Vec<WorkspaceRow>,
 ) -> Result<StoredBenchmark, PersistenceError> {
     let run_id: Uuid = row.try_get("id")?;
 
@@ -166,6 +251,7 @@ fn decode(
         memory: decode_memory(row)?,
         cpu: decode_cpu(row)?,
         http_latency: decode_http_latency(row)?,
+        workspaces,
     })
 }
 

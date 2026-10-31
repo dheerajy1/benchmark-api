@@ -1,6 +1,10 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use super::{model::BenchmarkRequest, run_origin::RunOrigin};
+use super::{
+    model::BenchmarkRequest,
+    run_origin::RunOrigin,
+    workspace::{config::WorkspaceRequest, env_file},
+};
 
 // The configuration a run executed with. Header names only, never a header value.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -12,6 +16,42 @@ pub struct RunConfiguration {
     pub target_path: String,
     pub startup: Option<StartupConfiguration>,
     pub workload: Option<WorkloadConfiguration>,
+    // Empty for a run without workspaces
+    pub workspaces: Vec<WorkspaceConfiguration>,
+}
+
+// One workspace as a run used it. Environment variable names only, never a value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceConfiguration {
+    pub name: String,
+    pub directory: String,
+    // "file" or "pasted", None when the workspace had no environment
+    pub env_source: Option<String>,
+    pub env_file_path: Option<String>,
+    // Known here for a pasted env, a file's names are in the workspace results
+    pub env_variable_names: Vec<String>,
+    pub ready_log_line: String,
+    pub ready_timeout_seconds: u64,
+    pub load_command: Option<String>,
+    pub idle_seconds: u64,
+    pub native: Option<NativeConfiguration>,
+    pub docker: Option<DockerConfiguration>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeConfiguration {
+    pub build_command: Option<String>,
+    pub command: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DockerConfiguration {
+    pub build_command: String,
+    pub build_timeout_seconds: u64,
+    pub image: String,
+    pub container_name: String,
+    // The template, the {ENV_FILE} placeholder is still in it
+    pub run_command: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -116,6 +156,64 @@ impl RunConfiguration {
                     duration_seconds: workload.duration_seconds,
                     concurrency: workload.concurrency,
                     header_names: workload.headers.keys().cloned().collect(),
+                }),
+            workspaces: request
+                .workspaces
+                .iter()
+                .map(WorkspaceConfiguration::from_request)
+                .collect(),
+        }
+    }
+}
+
+impl WorkspaceConfiguration {
+    pub fn from_request(workspace: &WorkspaceRequest) -> Self {
+        let env = workspace.env.as_ref();
+
+        let (env_source, env_file_path, env_variable_names) = match env {
+            Some(env) => match (&env.file_path, &env.pasted) {
+                (Some(path), None) => (Some("file".to_string()), Some(path.clone()), Vec::new()),
+                (None, Some(text)) => (
+                    Some("pasted".to_string()),
+                    None,
+                    // Validation already accepted the text, only the names are kept
+                    env_file::parse(text)
+                        .map(|variables| variables.into_keys().collect())
+                        .unwrap_or_default(),
+                ),
+                _ => (None, None, Vec::new()),
+            },
+            None => (None, None, Vec::new()),
+        };
+
+        Self {
+            name: workspace.name.clone(),
+            directory: workspace.directory.clone(),
+            env_source,
+            env_file_path,
+            env_variable_names,
+            ready_log_line: workspace.ready_log_line.clone(),
+            ready_timeout_seconds: workspace.ready_timeout_seconds,
+            load_command: workspace.load.as_ref().map(|load| load.command.clone()),
+            idle_seconds: workspace.idle_seconds,
+            native: workspace
+                .native
+                .as_ref()
+                .filter(|native| native.enabled)
+                .map(|native| NativeConfiguration {
+                    build_command: native.build_command.clone(),
+                    command: native.command.clone(),
+                }),
+            docker: workspace
+                .docker
+                .as_ref()
+                .filter(|docker| docker.enabled)
+                .map(|docker| DockerConfiguration {
+                    build_command: docker.build_command.clone(),
+                    build_timeout_seconds: docker.build_timeout_seconds,
+                    image: docker.image.clone(),
+                    container_name: docker.container_name.clone(),
+                    run_command: docker.run_command.clone(),
                 }),
         }
     }

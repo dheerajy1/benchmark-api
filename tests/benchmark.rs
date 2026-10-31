@@ -28,4 +28,7 @@ mod benchmark {
     pub mod test_server;
     pub mod validation;
     pub mod workload;
+    pub mod workspace_comparison;
+    pub mod workspace_run;
+    pub mod workspace_validation;
 }

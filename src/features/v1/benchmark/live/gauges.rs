@@ -147,6 +147,38 @@ pub fn build_sample(gauges: &LiveGauges, limit: WorkloadLimit, elapsed: Duration
     })
 }
 
+// The data of one `workspace.sample` event: the latest memory and CPU of the measured
+// workspace mode, the same shapes the `sample` event uses
+pub fn build_workspace_sample(
+    gauges: &LiveGauges,
+    workspace: &str,
+    mode: &str,
+    elapsed: Duration,
+) -> Value {
+    let memory = gauges.memory().map(|memory| {
+        json!({
+            "rss_bytes": memory.rss_bytes,
+            "peak_rss_bytes": memory.peak_rss_bytes,
+        })
+    });
+
+    let cpu = gauges.cpu().map(|cpu| {
+        json!({
+            "interval_percent": cpu.interval_percent.map(round_two_decimals),
+            "average_percent": cpu.average_percent.map(round_two_decimals),
+            "peak_percent": cpu.peak_percent.map(round_two_decimals),
+        })
+    });
+
+    json!({
+        "workspace": workspace,
+        "mode": mode,
+        "elapsed_ms": elapsed.as_millis() as u64,
+        "memory": memory,
+        "cpu": cpu,
+    })
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()

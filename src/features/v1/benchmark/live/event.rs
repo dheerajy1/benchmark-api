@@ -13,6 +13,10 @@ pub mod kind {
     pub const MEASUREMENT_AVAILABLE: &str = "measurement.available";
     pub const BASELINE_MEASURED: &str = "baseline.measured";
     pub const SAMPLE: &str = "sample";
+    // Where one mode (native or docker) of a workspace is: started, sampling, finished
+    pub const WORKSPACE_PHASE: &str = "workspace.phase";
+    // Memory and CPU of a workspace mode while it is sampled, evictable like `sample`
+    pub const WORKSPACE_SAMPLE: &str = "workspace.sample";
     pub const RUN_COMPLETED: &str = "run.completed";
     pub const RUN_FAILED: &str = "run.failed";
     // Cancellation was requested, the run is still stopping
@@ -45,7 +49,7 @@ pub fn is_terminal(event_kind: &str) -> bool {
 
 // Samples are the only events that may be evicted from a run's log
 pub fn is_sample(event_kind: &str) -> bool {
-    event_kind == kind::SAMPLE
+    event_kind == kind::SAMPLE || event_kind == kind::WORKSPACE_SAMPLE
 }
 
 // RFC 3339 with milliseconds in UTC, the format of every other timestamp of the API

@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+use crate::features::v1::benchmark::configuration::WorkspaceConfiguration;
+
 use super::{
     catalog::{StartupSpec, TargetEntry, WorkloadSpec},
     policy::RunPolicy,
@@ -20,6 +22,8 @@ pub struct TargetView {
     pub path: String,
     pub startup: Option<StartupView>,
     pub workload: Option<WorkloadView>,
+    // Variable names only, never a pasted value
+    pub workspaces: Vec<WorkspaceConfiguration>,
 }
 
 #[derive(Debug, Serialize)]
@@ -77,6 +81,11 @@ impl TargetView {
             path: entry.path.display().to_string(),
             startup: entry.startup.as_ref().map(StartupView::from_spec),
             workload: entry.workload.as_ref().map(WorkloadView::from_spec),
+            workspaces: entry
+                .workspaces
+                .iter()
+                .map(WorkspaceConfiguration::from_request)
+                .collect(),
         }
     }
 }

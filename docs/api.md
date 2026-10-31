@@ -27,6 +27,83 @@ Only `path` is required. `workload` takes `requests` or `duration_seconds`, not 
 
 A raw request is refused with `403 FORBIDDEN` unless the server was started with `ALLOW_CUSTOM_RUNS=true`. A body that names a saved target (`{ "target_id": "...", "workload": { ... } }`) is handled by the saved-target rules in [saved-targets.md](saved-targets.md). Raw requests that are valid JSON but malformed are answered exactly as before this feature, with the same status, code, message and error text.
 
+### Workspaces (optional)
+
+A request may also carry a `workspaces` list. Each entry measures one extra process after the main project has finished, for example the recordlog subscriber, natively and in Docker. A project without a subscriber leaves the list out, and its request and response are exactly what they were before.
+
+```json
+{
+  "path": "/home/me/projects/recordlog",
+  "workspaces": [
+    {
+      "name": "subscriber",
+      "directory": "subscriber",
+      "env": { "file_path": "subscriber/.env" },
+      "ready_log_line": "subscriber ready",
+      "ready_timeout_seconds": 60,
+      "load": { "command": "bun run load" },
+      "idle_seconds": 30,
+      "native": {
+        "enabled": true,
+        "build_command": "cargo build --release",
+        "command": "./target/release/subscriber"
+      },
+      "docker": {
+        "enabled": true,
+        "build_command": "docker compose build subscriber",
+        "build_timeout_seconds": 1800,
+        "image": "recordlog-subscriber:latest",
+        "container_name": "recordlog-subscriber",
+        "run_command": "docker run -d --env-file {ENV_FILE} --name recordlog-subscriber recordlog-subscriber:latest"
+      }
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Label in results, also the key that matches runs when comparing |
+| `directory` | Folder of the workspace, relative to `path`, never leaving it |
+| `env.file_path` or `env.pasted` | At most one. `pasted` is the body of a `.env` file (comments, `export`, quotes, blank lines, Windows line endings and `=` inside values are handled) |
+| `ready_log_line` | Text that must appear in the output before the process counts as ready. Required when native or Docker is enabled |
+| `ready_timeout_seconds` | How long to wait for that line, default 60 |
+| `load.command` | Optional command run while memory is sampled |
+| `idle_seconds` | Sampling window when there is no load command, default 30 |
+| `native.enabled`, `native.command` | Start command of the plain process |
+| `native.build_command` | Optional, runs once before the start command, for example a compile step |
+| `docker.enabled` | Switches the Docker mode on |
+| `docker.build_command` | Builds the image, its time is recorded |
+| `docker.build_timeout_seconds` | Default 1800, so a Rust build is not cut off |
+| `docker.image` | Image name, read for its size after the build |
+| `docker.container_name` | Used to detect a running copy, find the process and remove the container |
+| `docker.run_command` | Starts the container. Must contain `{ENV_FILE}` when an env is given, and may not when none is |
+
+Commands are split into words like a shell would, but no shell runs, so nothing is expanded. Variable values are never stored or returned, only their names (`env_variable_names`).
+
+A workspace is refused with `409 CONFLICT` before anything starts when a copy of it is already running: a container with the configured name or image, or a process whose command line holds the native command and whose working directory is the workspace folder. The message says what to stop.
+
+Each enabled mode adds one entry to `metrics.workspaces`:
+
+```json
+{
+  "name": "subscriber",
+  "mode": "docker",
+  "status": "success",
+  "message": null,
+  "env_variable_names": ["DATABASE_URL"],
+  "build": { "status": "success", "duration_ms": 412000, "exit_code": 0 },
+  "image": { "bytes": 98304000, "size": "93.75 MB", "disk_usage_bytes": 276000000, "disk_usage": "263.21 MB" },
+  "startup": { "duration_ms": 1850 },
+  "memory": { "baseline": {}, "peak": {}, "delta": {} },
+  "cpu": { "baseline_percent": 0.0, "average_percent": 1.2, "peak_percent": 3.4 },
+  "load": { "status": "success", "exit_code": 0, "duration_ms": 30500 },
+  "idle_seconds": null
+}
+```
+
+`mode` is `native` or `docker`. `image.bytes` is the image size `docker image inspect` reports, `image.disk_usage_bytes` the unpacked size on disk as `docker image ls` lists it (`null` when that Docker does not report it). A mode that fails to build, start or become ready keeps its `status` (`failed` or `timeout`), a `message` and `null` numbers, and the other mode still runs. `workspaces` is left out of the response when the run had none.
+
 ## GET /targets
 
 Lists the saved targets from the targets file, with names only, never a header value. See [saved-targets.md](saved-targets.md) for the response shape and the rules.
@@ -210,6 +287,9 @@ GET /api/v1/comparisons/summary?runIds=<baseline_run_id>,<comparison_run_id>
 | `http_latency` | `requests_per_second` | higher is better |
 | `http_latency` | `p50_ms`, `p95_ms`, `p99_ms` | lower is better |
 | `artifact_size.source`, `.build`, `.excluded` | `bytes`, `file_count` | lower is better |
+| `workspaces[]`, matched by `name` and `mode` | `image_bytes`, `build_duration_ms`, `startup_duration_ms`, `baseline_rss_bytes`, `peak_rss_bytes`, `delta_rss_bytes`, `cpu_baseline_percent`, `cpu_average_percent`, `cpu_peak_percent` | lower is better |
+
+A workspace entry exists for every name and mode either run has. A side that did not have it, or whose mode did not succeed, has `null` values and no difference.
 
 ### When a metric counts as available
 
