@@ -4,6 +4,8 @@ This document describes the cancellation contract and the control plane that dec
 What the execution does when it is asked to stop (build, startup, workload, samplers, process groups)
 comes in the next step, see "Not yet" at the end.
 
+A cancelled run is stored like any other run, with the parts that finished and the stage where it stopped (`status: cancelled`). See [api.md](api.md#get-benchmarksrun_id).
+
 ## Token
 
 `POST /api/v1/live-runs` answers `202` with `cancel_token`, 128 random bits as 32 hex digits read from the
@@ -32,8 +34,10 @@ The answer means the cancel request was taken, not that the run has stopped.
 
 - `run.cancelling` `{ "stage": "<stage in progress>" }`: recorded once, when the request is taken. A normal event,
   so every watcher sees it. The run is still running.
-- `run.cancelled` `{ "stage": "<last stage started>", "persisted": false }`: the terminal event. It is only recorded
-  after the execution has returned, so its work and its cleanup are over. Nothing is saved.
+- `run.cancelled` `{ "stage": "<last stage started>", "persisted": true }`: the terminal event. It is only recorded
+  after the execution has returned, so its work and its cleanup are over, and after the run was stored. The stored run
+  id is the live run id, so the cancelled banner can link to `GET /api/v1/benchmarks/{run_id}`. `persisted` is `false`
+  only when storing failed, and then `persist_error` says why.
 - Replay and `stream.opened` report `status: "cancelled"` for such a run.
 
 ## How a run ends: one atomic switch
@@ -47,21 +51,23 @@ Exactly one of the two can happen, so cancelling and finishing never both win.
 
 | What the execution does | Terminal event |
 |---|---|
-| Returns cancelled | `run.cancelled` |
-| Returns its result while a cancel request is pending | `run.cancelled`, the result is thrown away and not saved |
-| Returns its result and no cancel request won | the result is saved, then `run.completed` |
-| Fails on its own, even with a cancel request pending | `run.failed`, because that is what happened |
-| Panics | `run.failed` |
+| Returns cancelled | the run is stored as `cancelled`, then `run.cancelled` with `persisted: true` |
+| Returns its result while a cancel request is pending | the finished work is stored as `cancelled`, then `run.cancelled` with `persisted: true` |
+| Returns its result and no cancel request won | the result is stored as `done` or `failed` by its steps, then `run.completed` or `run.failed` |
+| Fails on its own, even with a cancel request pending | the run is stored as `failed` with its message and the stage it stopped in, then `run.failed` with `persisted: true` |
+| Panics | stored as `failed` without parts, then `run.failed` |
 
-The save is never attempted for a cancelled run. The terminal event is recorded before the execution slot is
-released, as for every run.
+A run that stops is stored before its terminal event is recorded, with every part that finished and `null` for the rest. A
+stage that was running when it stopped is kept with the status `cancelled` or `failed`. The terminal event is recorded before
+the execution slot is released, as for every run.
 
 ## Other rules
 
 - Closing the page or the WebSocket never cancels. Cancelling is only this request.
 - A cancel request does not depend on any client being connected.
-- A cancelled run is a finished run for retention: it expires like one and counts toward the cap of finished runs.
-- Cancelled runs are not stored, there is no change to the database, the history or the other endpoints.
+- A cancelled run is a finished run for retention: it expires like one and counts toward the cap of finished runs in memory.
+- Cancelled and failed runs are in the history (`status` filter), in the counts and in the totals of the overview, but never
+  as the latest run or a trend point of the overview, and Compare shows their unfinished parts as `null`.
 
 ## What the execution does when it is asked to stop
 
@@ -78,7 +84,7 @@ Each step looks at the request and stops what it started. "Latency" is the longe
 
 ## Stopping a process group, and checking it
 
-Every build and every target runs in its own process group. Stopping one is now checked, for every run, live or legacy:
+Every build and every target runs in its own process group. Stopping one is checked for every run:
 
 1. `SIGTERM` to the group, then up to 100 ms for it to exit.
 2. `SIGKILL` to the group, then the group is looked at in `/proc` every 10 ms until no running process of it is left
@@ -90,12 +96,14 @@ Only then is the leader collected. The checks are the same on a normal ending, b
 stderr and the result stands, as before.
 
 `run.cancelled` is only recorded when the target and the build are really gone. If the group cannot be stopped, the run
-ends as `run.failed` with a message naming the processes that are left, never as cancelled. The execution slot is still
+ends as `run.failed` (stored as `failed`) with a message naming the processes that are left, never as cancelled. The execution slot is still
 released, because holding it forever would block every later run.
 
 On Linux this reads `/proc`. On a system without it the check cannot see anything and passes.
 
 ## Verified in a real browser, and what was not
+
+This section was written before cancelled runs were stored: the "nothing was stored" messages below are what the page said then, and a cancelled run is now stored.
 
 Observed on 2026-10-17 by hand, in one browser, with the dashboard served through a VS Code dev tunnel and this API behind a
 Cloudflare quick tunnel, against the kafka-api-gateway project. After each cancel the server was checked for any process whose

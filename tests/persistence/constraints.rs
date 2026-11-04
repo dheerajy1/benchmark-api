@@ -21,8 +21,8 @@ async fn a_run_cannot_reference_an_unknown_runtime() {
     };
 
     let error = sqlx::query(
-        "INSERT INTO benchmark_runs (id, target_path, runtime_id, created_at) \
-         VALUES ($1, $2, $3, now())",
+        "INSERT INTO benchmark_runs (id, target_path, runtime_id, created_at, status) \
+         VALUES ($1, $2, $3, now(), 'done')",
     )
     .bind(Uuid::now_v7())
     .bind("/tmp/x")

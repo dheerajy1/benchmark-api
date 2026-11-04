@@ -17,12 +17,12 @@ pub fn result() -> BenchmarkResult {
         },
         metrics: Metrics {
             workspaces: Vec::new(),
-            artifact_size: ArtifactSize {
+            artifact_size: Some(ArtifactSize {
                 source: category(100, 1),
                 build: category(200, 2),
                 excluded: category(300, 3),
-            },
-            build_time: BuildTime {
+            }),
+            build_time: Some(BuildTime {
                 status: "success".to_string(),
                 duration_ms: Some(1842),
                 command: Some(BuildCommand {
@@ -33,8 +33,8 @@ pub fn result() -> BenchmarkResult {
                 started_at: Some("2026-10-04T12:00:00.000Z".to_string()),
                 finished_at: Some("2026-10-04T12:00:01.842Z".to_string()),
                 exit_code: Some(0),
-            },
-            startup_time: StartupTime {
+            }),
+            startup_time: Some(StartupTime {
                 status: "success".to_string(),
                 duration_ms: Some(1500),
                 command: Some(BuildCommand {
@@ -53,7 +53,7 @@ pub fn result() -> BenchmarkResult {
                 started_at: Some("2026-10-04T12:00:02.000Z".to_string()),
                 ready_at: Some("2026-10-04T12:00:03.500Z".to_string()),
                 exit_code: None,
-            },
+            }),
             memory: Some(Memory {
                 baseline: reading(52_428_800),
                 peak: reading(73_400_320),
@@ -89,7 +89,7 @@ pub fn skipped_result() -> BenchmarkResult {
     result.discovery.runtime = None;
     result.discovery.build = None;
 
-    result.metrics.build_time = BuildTime {
+    result.metrics.build_time = Some(BuildTime {
         status: "no_build_command".to_string(),
         duration_ms: None,
         command: None,
@@ -97,9 +97,9 @@ pub fn skipped_result() -> BenchmarkResult {
         started_at: None,
         finished_at: None,
         exit_code: None,
-    };
+    });
 
-    result.metrics.startup_time = StartupTime {
+    result.metrics.startup_time = Some(StartupTime {
         status: "no_start_command".to_string(),
         duration_ms: None,
         command: None,
@@ -108,7 +108,7 @@ pub fn skipped_result() -> BenchmarkResult {
         started_at: None,
         ready_at: None,
         exit_code: None,
-    };
+    });
 
     result.metrics.memory = None;
     result.metrics.cpu = None;

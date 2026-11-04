@@ -307,8 +307,8 @@ async fn cancelling_a_run_that_works_ends_in_exactly_one_run_cancelled_and_store
 
     assert_eq!(replay.status, RunStatus::Cancelled);
     assert_eq!(last.data["stage"], json!("build"));
-    assert_eq!(last.data["persisted"], json!(false));
-    assert!(repository.saved_run_ids().is_empty());
+    assert_eq!(last.data["persisted"], json!(true));
+    assert_eq!(repository.saved_run_ids(), vec![accepted.run_id]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -348,14 +348,14 @@ async fn cancelled_is_not_reported_until_the_work_has_stopped() {
     wait_until_terminal(&live, &accepted.entry).await;
     wait_until_slot_free(live.slot()).await;
 
-    // The benchmark ran to its end while a cancel request was pending: the result is thrown
-    // away and nothing is saved
+    // The benchmark ran to its end while a cancel request was pending: what it measured is
+    // kept as a cancelled run
     assert_eq!(accepted.entry.status(), RunStatus::Cancelled);
-    assert!(repository.saved_run_ids().is_empty());
+    assert_eq!(repository.saved_run_ids(), vec![accepted.run_id]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_cancelled_run_never_reaches_the_repository_not_even_a_failing_one() {
+async fn a_cancelled_run_stays_cancelled_even_when_storing_it_fails() {
     let temp_dir = TempDir::new().unwrap();
     let gate = Arc::new(AtomicBool::new(false));
 
@@ -380,7 +380,7 @@ async fn a_cancelled_run_never_reaches_the_repository_not_even_a_failing_one() {
     wait_until_terminal(&live, &accepted.entry).await;
     wait_until_slot_free(live.slot()).await;
 
-    // A save attempt would have ended this run as failed
+    // The save failed, the run is still reported as cancelled, with persisted false
     assert_eq!(accepted.entry.status(), RunStatus::Cancelled);
 }
 
@@ -396,10 +396,11 @@ async fn a_run_that_started_saving_is_completed_and_cancelling_is_refused() {
     }
 
     impl BenchmarkRepository for SlowRepository {
-        fn save<'a>(
+        fn save_run<'a>(
             &'a self,
             result: &'a BenchmarkResult,
             _configuration: &'a benchmark_api::features::v1::benchmark::configuration::RunConfiguration,
+            _outcome: benchmark_api::persistence::outcome::RunOutcome,
         ) -> PersistFuture<'a> {
             Box::pin(async move {
                 tokio::time::sleep(Duration::from_millis(400)).await;
@@ -412,7 +413,7 @@ async fn a_run_that_started_saving_is_completed_and_cancelling_is_refused() {
 
         fn get_configuration<'a>(
             &'a self,
-            _run_id: Uuid,
+            _run_id: uuid::Uuid,
         ) -> benchmark_api::persistence::repository::ConfigurationFuture<'a> {
             Box::pin(async {
                 Ok(benchmark_api::persistence::repository::ConfigurationLookup::RunMissing)
@@ -433,6 +434,20 @@ async fn a_run_that_started_saving_is_completed_and_cancelling_is_refused() {
             Box::pin(async { Ok(Vec::new()) })
         }
 
+        fn delete_run<'a>(
+            &'a self,
+            _run_id: uuid::Uuid,
+        ) -> benchmark_api::persistence::repository::DeleteFuture<'a> {
+            Box::pin(async { Ok(false) })
+        }
+
+        fn count_history<'a>(
+            &'a self,
+            _query: &'a benchmark_api::persistence::history::SummaryQuery,
+        ) -> benchmark_api::persistence::repository::HistoryCountsFuture<'a> {
+            Box::pin(async { Ok(benchmark_api::persistence::history::HistoryCounts::default()) })
+        }
+
         fn get_runs<'a>(
             &'a self,
             _run_ids: &'a [Uuid],
@@ -442,7 +457,7 @@ async fn a_run_that_started_saving_is_completed_and_cancelling_is_refused() {
 
         fn get_by_run_id<'a>(
             &'a self,
-            _run_id: Uuid,
+            _run_id: uuid::Uuid,
         ) -> benchmark_api::persistence::repository::GetFuture<'a> {
             Box::pin(async { Ok(None) })
         }
@@ -453,9 +468,34 @@ async fn a_run_that_started_saving_is_completed_and_cancelling_is_refused() {
 
         fn list_trends<'a>(
             &'a self,
-            _limit: i64,
+            _query: &'a benchmark_api::persistence::history::TrendQuery,
         ) -> benchmark_api::persistence::repository::TrendsFuture<'a> {
             Box::pin(async { Ok(Vec::new()) })
+        }
+
+        fn list_projects<'a>(
+            &'a self,
+        ) -> benchmark_api::persistence::repository::ProjectsFuture<'a> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+
+        fn project_totals<'a>(
+            &'a self,
+            _target_path: &'a str,
+        ) -> benchmark_api::persistence::repository::ProjectTotalsFuture<'a> {
+            Box::pin(async { Ok(benchmark_api::persistence::history::ProjectTotals::default()) })
+        }
+
+        fn recent_stage_runs<'a>(
+            &'a self,
+            _target_path: &'a str,
+            _limit: i64,
+        ) -> benchmark_api::persistence::repository::StageRunsFuture<'a> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+
+        fn ping<'a>(&'a self) -> benchmark_api::persistence::repository::PingFuture<'a> {
+            Box::pin(async { Ok(()) })
         }
     }
 
@@ -641,7 +681,10 @@ async fn after_a_cancellation_the_slot_is_free_and_the_next_run_works() {
 
     assert_eq!(first.entry.status(), RunStatus::Cancelled);
     assert_eq!(second.entry.status(), RunStatus::Completed);
-    assert_eq!(repository.saved_run_ids(), vec![second.run_id]);
+    assert_eq!(
+        repository.saved_run_ids(),
+        vec![first.run_id, second.run_id]
+    );
     assert_eq!(live.registry().len(), 2);
 }
 
@@ -702,7 +745,7 @@ async fn cancelling_while_a_run_completes_always_ends_in_exactly_one_consistent_
             "run.cancelled" => {
                 cancelled += 1;
 
-                assert_eq!(saved_times, 0);
+                assert_eq!(saved_times, 1);
                 assert_eq!(outcome, CancelOutcome::Requested, "{names:?}");
             }
             other => panic!("unexpected end {other}: {names:?}"),
@@ -711,8 +754,8 @@ async fn cancelling_while_a_run_completes_always_ends_in_exactly_one_consistent_
 
     wait_until_slot_free(live.slot()).await;
 
-    // Never saved twice, never saved when cancelled
-    assert_eq!(repository.saved_run_ids().len(), completed);
+    // Every run is saved exactly once, completed or cancelled
+    assert_eq!(repository.saved_run_ids().len(), completed + cancelled);
     assert_eq!(completed + cancelled, 80);
     println!("PHASEC1 race completion: completed={completed} cancelled={cancelled}");
 }
@@ -753,5 +796,6 @@ async fn cancelling_while_a_run_fails_ends_in_failed_because_that_is_what_happen
 
     wait_until_slot_free(live.slot()).await;
 
-    assert!(repository.saved_run_ids().is_empty());
+    // A failed run is stored too
+    assert_eq!(repository.saved_run_ids().len(), 60);
 }

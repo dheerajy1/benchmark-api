@@ -1,12 +1,17 @@
 use axum::http::{HeaderMap, HeaderValue, header::ORIGIN};
 
-// The browser origins that may call the API: the local development ports of the API and
-// its tunnels. One list for CORS and for the WebSocket handshake, so they cannot drift.
+// The browser origins that may call the API: the ports of the API itself (5002 development,
+// 8092 production), the ports of the dashboard (5003 development, 8093 production) and the
+// tunnels. One list for CORS and for the WebSocket handshake, so they cannot drift.
 pub fn is_allowed(origin: &str) -> bool {
     origin == "http://localhost:5002"
         || origin == "http://127.0.0.1:5002"
         || origin == "http://localhost:8092"
         || origin == "http://127.0.0.1:8092"
+        || origin == "http://localhost:5003"
+        || origin == "http://127.0.0.1:5003"
+        || origin == "http://localhost:8093"
+        || origin == "http://127.0.0.1:8093"
         || origin.ends_with(".usw3.devtunnels.ms")
         || origin.ends_with(".trycloudflare.com")
 }

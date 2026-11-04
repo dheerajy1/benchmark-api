@@ -70,7 +70,7 @@ fn seeded() -> (Arc<InMemoryRepository>, Uuid, Uuid) {
 
     let mut slower = result(comparison);
 
-    slower.metrics.build_time.duration_ms = Some(1500);
+    slower.metrics.build_time.as_mut().unwrap().duration_ms = Some(1500);
 
     repository.seed_result(slower);
 
@@ -368,4 +368,55 @@ async fn other_methods_are_not_allowed() {
         assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
         assert_error_shape(&body, 405, "METHOD_NOT_ALLOWED");
     }
+}
+
+#[tokio::test]
+async fn a_deleted_run_is_not_found_and_never_compared() {
+    let (repository, baseline, comparison) = seeded();
+
+    let (status, _) = send(
+        repository.clone(),
+        Method::DELETE,
+        &format!("/api/v1/benchmarks/{comparison}"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, body) = get(&repository, &uri(&format!("{baseline},{comparison}"))).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_error_shape(&body, 404, "NOT_FOUND");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains(&comparison.to_string())
+    );
+}
+
+#[tokio::test]
+async fn a_run_that_failed_its_build_compares_with_null_build_and_never_a_zero() {
+    let repository = Arc::new(InMemoryRepository::default());
+    let baseline = Uuid::now_v7();
+    let comparison = Uuid::now_v7();
+
+    repository.seed_result(result(baseline));
+
+    let mut failed = result(comparison);
+
+    failed.metrics.build_time.as_mut().unwrap().status = "failed".to_string();
+
+    repository.seed_result(failed);
+
+    let (status, body) = get(&repository, &uri(&format!("{baseline},{comparison}"))).await;
+
+    assert_eq!(status, StatusCode::OK);
+
+    let build = &body["data"]["metrics"]["build_time"]["duration_ms"];
+
+    assert_eq!(build["baseline_value"], json!(1000));
+    assert_eq!(build["comparison_value"], json!(null));
+    assert_eq!(build["absolute_difference"], json!(null));
+    assert_eq!(build["percentage_change"], json!(null));
 }

@@ -99,6 +99,31 @@ async fn overview_of(run: BenchmarkResult) -> Value {
     body["data"].clone()
 }
 
+// The same run stored under another project path
+fn at(path: &str, mut run: BenchmarkResult) -> BenchmarkResult {
+    run.target.path = path.to_string();
+
+    run
+}
+
+// A run whose build failed, so its status is failed
+fn failed(run_id: Uuid) -> BenchmarkResult {
+    let mut run = result(run_id);
+
+    run.metrics.build_time.as_mut().unwrap().status = "failed".to_string();
+
+    run
+}
+
+fn ids_of(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["run_id"].as_str().unwrap().to_string())
+        .collect()
+}
+
 // The trend point of a run with the given six metric values
 fn point(run_id: Uuid, metrics: [Value; 6]) -> Value {
     let [build, startup, memory, cpu, rps, p95] = metrics;
@@ -125,7 +150,7 @@ fn trend_ids(body: &Value) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn an_empty_database_returns_zero_runs_no_latest_and_no_trends() {
+async fn an_empty_database_returns_no_project_zero_totals_and_nothing_else() {
     let repository = Arc::new(InMemoryRepository::default());
 
     let (status, body) = get(&repository, URI).await;
@@ -137,35 +162,55 @@ async fn an_empty_database_returns_zero_runs_no_latest_and_no_trends() {
     assert_eq!(
         body["data"],
         json!({
-            "totals": { "total_runs": 0 },
+            "project": null,
+            "projects": [],
+            "totals": { "total_runs": 0, "done_runs": 0, "failed_runs": 0, "cancelled_runs": 0 },
             "latest": null,
+            "previous": null,
             "trends": []
         })
     );
 }
 
 #[tokio::test]
-async fn one_complete_run_fills_totals_latest_and_trends() {
+async fn one_complete_run_fills_the_project_totals_latest_and_trends() {
     let data = overview_of(result(id(1))).await;
 
-    assert_eq!(data["totals"], json!({ "total_runs": 1 }));
     assert_eq!(
-        data["latest"],
+        data["project"],
+        json!({ "path": "/projects/api", "name": "api", "runtime": "bun", "source": null })
+    );
+    assert_eq!(
+        data["projects"],
+        json!([{
+            "path": "/projects/api",
+            "name": "api",
+            "runtime": "bun",
+            "total_runs": 1,
+            "done_runs": 1,
+            "last_run_at": "1970-01-01T00:00:01.000Z"
+        }])
+    );
+    assert_eq!(
+        data["totals"],
+        json!({ "total_runs": 1, "done_runs": 1, "failed_runs": 0, "cancelled_runs": 0 })
+    );
+    assert_eq!(data["latest"]["run_id"], json!(id(1).to_string()));
+    assert_eq!(data["latest"]["status"], json!("done"));
+    assert_eq!(
+        data["latest"]["summary"],
         json!({
-            "run_id": id(1).to_string(),
-            "target": { "path": "/projects/api" },
-            "discovery": { "runtime": "bun" },
-            "created_at": "1970-01-01T00:00:01.000Z",
-            "summary": {
-                "build_time_ms": 1000,
-                "startup_time_ms": 500,
-                "memory_peak_bytes": 200,
-                "cpu_average_percent": 20.0,
-                "requests_per_second": 100.0,
-                "p95_ms": 20.0
-            }
+            "build_output_bytes": 2000,
+            "workspaces": [],
+            "build_time_ms": 1000,
+            "startup_time_ms": 500,
+            "memory_peak_bytes": 200,
+            "cpu_average_percent": 20.0,
+            "requests_per_second": 100.0,
+            "p95_ms": 20.0
         })
     );
+    assert_eq!(data["previous"], json!(null));
     assert_eq!(
         data["trends"],
         json!([point(
@@ -191,130 +236,249 @@ async fn totals_count_the_complete_history_while_trends_hold_the_newest_thirty()
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["data"]["totals"]["total_runs"], json!(35));
+    assert_eq!(body["data"]["totals"]["done_runs"], json!(35));
 
     let expected: Vec<String> = ids.iter().rev().take(30).map(Uuid::to_string).collect();
 
     assert_eq!(trend_ids(&body), expected);
-    assert_eq!(
-        body["data"]["trends"][29]["run_id"],
-        json!(id(6).to_string())
-    );
 }
 
 #[tokio::test]
-async fn fewer_than_thirty_runs_are_all_returned_newest_first() {
-    let repository = Arc::new(InMemoryRepository::default());
-
-    seed(&repository, 3);
-
-    let (_, body) = get(&repository, URI).await;
-
-    assert_eq!(body["data"]["totals"]["total_runs"], json!(3));
-    assert_eq!(
-        trend_ids(&body),
-        vec![id(3).to_string(), id(2).to_string(), id(1).to_string()]
-    );
-}
-
-#[tokio::test]
-async fn latest_is_the_newest_run_in_the_history_summary_form() {
+async fn latest_and_previous_are_the_newest_two_done_runs_in_the_history_form() {
     let repository = Arc::new(InMemoryRepository::default());
 
     seed(&repository, 3);
 
     let (_, overview) = get(&repository, URI).await;
-    let (_, history) = get(&repository, "/api/v1/benchmarks?limit=1").await;
+    let (_, history) = get(&repository, "/api/v1/benchmarks?limit=2").await;
 
     assert_eq!(overview["data"]["latest"], history["data"]["items"][0]);
+    assert_eq!(overview["data"]["previous"], history["data"]["items"][1]);
     assert_eq!(
         overview["data"]["latest"]["run_id"],
         json!(id(3).to_string())
     );
     assert_eq!(
-        overview["data"]["trends"][0]["run_id"],
-        overview["data"]["latest"]["run_id"]
+        overview["data"]["previous"]["run_id"],
+        json!(id(2).to_string())
     );
 }
 
 #[tokio::test]
-async fn a_failed_build_a_timed_out_startup_and_a_partial_workload_are_null_in_the_trend() {
-    let mut run = result(id(1));
+async fn two_interleaved_projects_never_mix() {
+    let repository = Arc::new(InMemoryRepository::default());
 
-    run.metrics.build_time.status = "failed".to_string();
-    run.metrics.startup_time.status = "timeout".to_string();
-    run.metrics.http_latency.as_mut().unwrap().status = "target_exited".to_string();
-
-    let data = overview_of(run).await;
-
-    // Memory and CPU have no status, so they are kept
-    assert_eq!(
-        data["trends"],
-        json!([point(
-            id(1),
-            [
-                json!(null),
-                json!(null),
-                json!(200),
-                json!(20.0),
-                json!(null),
-                json!(null)
-            ]
-        )])
-    );
-
-    // The raw history summary behavior is unchanged and still shows the stored values
-    assert_eq!(
-        data["latest"]["summary"],
-        json!({
-            "build_time_ms": 1000,
-            "startup_time_ms": 500,
-            "memory_peak_bytes": 200,
-            "cpu_average_percent": 20.0,
-            "requests_per_second": 100.0,
-            "p95_ms": 20.0
-        })
-    );
-}
-
-#[tokio::test]
-async fn only_a_successful_build_has_a_trend_duration() {
-    for status in ["failed", "timeout", "no_build_command"] {
-        let mut run = result(id(1));
-
-        run.metrics.build_time.status = status.to_string();
-
-        let data = overview_of(run).await;
-
-        assert_eq!(
-            data["trends"][0]["build_time_ms"],
-            json!(null),
-            "build status {status}"
-        );
-        assert_eq!(data["trends"][0]["startup_time_ms"], json!(500));
+    // api: 1, 3, 5 and web: 2, 4, interleaved in time
+    for (number, path) in [
+        (1, "/projects/api"),
+        (2, "/projects/web"),
+        (3, "/projects/api"),
+        (4, "/projects/web"),
+        (5, "/projects/api"),
+    ] {
+        repository.seed_result(at(path, result(id(number))));
     }
+
+    // Without a path the project of the newest done run is shown
+    let (_, body) = get(&repository, URI).await;
+    let data = &body["data"];
+
+    assert_eq!(data["project"]["path"], json!("/projects/api"));
+    assert_eq!(data["totals"]["total_runs"], json!(3));
+    assert_eq!(data["latest"]["run_id"], json!(id(5).to_string()));
+    assert_eq!(data["previous"]["run_id"], json!(id(3).to_string()));
+    assert_eq!(
+        ids_of(&data["trends"]),
+        vec![id(5).to_string(), id(3).to_string(), id(1).to_string()]
+    );
+    assert_eq!(
+        data["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|project| project["path"].clone())
+            .collect::<Vec<_>>(),
+        vec![json!("/projects/api"), json!("/projects/web")]
+    );
+
+    let (_, body) = get(&repository, &format!("{URI}?target_path=/projects/web")).await;
+    let data = &body["data"];
+
+    assert_eq!(data["project"]["path"], json!("/projects/web"));
+    assert_eq!(data["project"]["name"], json!("web"));
+    assert_eq!(data["totals"]["total_runs"], json!(2));
+    assert_eq!(data["latest"]["run_id"], json!(id(4).to_string()));
+    assert_eq!(data["previous"]["run_id"], json!(id(2).to_string()));
+    assert_eq!(
+        ids_of(&data["trends"]),
+        vec![id(4).to_string(), id(2).to_string()]
+    );
+    assert_eq!(data["projects"][0]["path"], json!("/projects/api"));
 }
 
 #[tokio::test]
-async fn only_a_successful_startup_has_a_trend_duration() {
-    for status in [
-        "failed",
-        "timeout",
-        "unhealthy",
-        "no_start_command",
-        "no_port",
+async fn a_trailing_slash_on_the_path_still_matches() {
+    let repository = Arc::new(InMemoryRepository::default());
+
+    seed(&repository, 2);
+
+    let (status, body) = get(&repository, &format!("{URI}?target_path=/projects/api/")).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["project"]["path"], json!("/projects/api"));
+    assert_eq!(body["data"]["totals"]["total_runs"], json!(2));
+}
+
+#[tokio::test]
+async fn a_path_without_runs_is_an_empty_project_and_not_an_error() {
+    let repository = Arc::new(InMemoryRepository::default());
+
+    seed(&repository, 2);
+
+    let (status, body) = get(&repository, &format!("{URI}?target_path=/projects/gone")).await;
+    let data = &body["data"];
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        data["project"],
+        json!({ "path": "/projects/gone", "name": "gone", "runtime": null, "source": null })
+    );
+    assert_eq!(
+        data["totals"],
+        json!({ "total_runs": 0, "done_runs": 0, "failed_runs": 0, "cancelled_runs": 0 })
+    );
+    assert_eq!(data["latest"], json!(null));
+    assert_eq!(data["previous"], json!(null));
+    assert_eq!(data["trends"], json!([]));
+    assert_eq!(data["projects"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn an_empty_target_path_is_rejected() {
+    let repository = Arc::new(InMemoryRepository::default());
+
+    let (status, body) = get(&repository, &format!("{URI}?target_path=")).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_error_shape(&body, 400, "VALIDATION_ERROR");
+}
+
+#[tokio::test]
+async fn the_default_project_is_the_newest_done_run_and_not_the_newest_run() {
+    let repository = Arc::new(InMemoryRepository::default());
+
+    repository.seed_result(result(id(1)));
+    repository.seed_result(at("/projects/web", failed(id(2))));
+
+    let (_, body) = get(&repository, URI).await;
+
+    assert_eq!(body["data"]["project"]["path"], json!("/projects/api"));
+}
+
+#[tokio::test]
+async fn a_project_without_done_runs_has_totals_but_no_latest_and_no_trends() {
+    let repository = Arc::new(InMemoryRepository::default());
+
+    repository.seed_result(failed(id(1)));
+
+    let (status, body) = get(&repository, URI).await;
+    let data = &body["data"];
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(data["project"]["path"], json!("/projects/api"));
+    assert_eq!(
+        data["totals"],
+        json!({ "total_runs": 1, "done_runs": 0, "failed_runs": 1, "cancelled_runs": 0 })
+    );
+    assert_eq!(data["latest"], json!(null));
+    assert_eq!(data["previous"], json!(null));
+    assert_eq!(data["trends"], json!([]));
+}
+
+#[tokio::test]
+async fn failed_runs_are_counted_but_never_shown_as_latest_or_trend() {
+    let repository = Arc::new(InMemoryRepository::default());
+
+    repository.seed_result(result(id(1)));
+    repository.seed_result(failed(id(2)));
+    repository.seed_result(failed(id(3)));
+
+    let (_, body) = get(&repository, URI).await;
+    let data = &body["data"];
+
+    assert_eq!(
+        data["totals"],
+        json!({ "total_runs": 3, "done_runs": 1, "failed_runs": 2, "cancelled_runs": 0 })
+    );
+    assert_eq!(data["latest"]["run_id"], json!(id(1).to_string()));
+    assert_eq!(data["previous"], json!(null));
+    assert_eq!(ids_of(&data["trends"]), vec![id(1).to_string()]);
+}
+
+#[tokio::test]
+async fn a_deleted_run_never_appears_anywhere_in_the_overview() {
+    let repository = Arc::new(InMemoryRepository::default());
+
+    seed(&repository, 3);
+
+    let uri = format!("/api/v1/benchmarks/{}", id(3));
+    let (status, _) = send(repository.clone(), Method::DELETE, &uri).await;
+
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, body) = get(&repository, URI).await;
+    let data = &body["data"];
+
+    assert_eq!(data["totals"]["total_runs"], json!(2));
+    assert_eq!(data["totals"]["done_runs"], json!(2));
+    assert_eq!(data["latest"]["run_id"], json!(id(2).to_string()));
+    assert_eq!(data["previous"]["run_id"], json!(id(1).to_string()));
+    assert_eq!(
+        ids_of(&data["trends"]),
+        vec![id(2).to_string(), id(1).to_string()]
+    );
+    assert_eq!(data["projects"][0]["total_runs"], json!(2));
+    assert_eq!(
+        data["projects"][0]["last_run_at"],
+        json!("1970-01-01T00:00:02.000Z")
+    );
+}
+
+#[tokio::test]
+async fn deleting_every_run_of_a_project_removes_it_from_the_switcher() {
+    let repository = Arc::new(InMemoryRepository::default());
+
+    repository.seed_result(result(id(1)));
+    repository.seed_result(at("/projects/web", result(id(2))));
+
+    let uri = format!("/api/v1/benchmarks/{}", id(2));
+    send(repository.clone(), Method::DELETE, &uri).await;
+
+    let (_, body) = get(&repository, URI).await;
+
+    assert_eq!(body["data"]["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(body["data"]["projects"][0]["path"], json!("/projects/api"));
+}
+
+#[tokio::test]
+async fn a_done_run_with_a_skipped_build_or_startup_has_null_durations() {
+    for (status, field) in [
+        ("no_build_command", "build_time_ms"),
+        ("no_start_command", "startup_time_ms"),
+        ("no_port", "startup_time_ms"),
     ] {
         let mut run = result(id(1));
 
-        run.metrics.startup_time.status = status.to_string();
+        if field == "build_time_ms" {
+            run.metrics.build_time.as_mut().unwrap().status = status.to_string();
+        } else {
+            run.metrics.startup_time.as_mut().unwrap().status = status.to_string();
+        }
 
         let data = overview_of(run).await;
 
-        assert_eq!(
-            data["trends"][0]["startup_time_ms"],
-            json!(null),
-            "startup status {status}"
-        );
-        assert_eq!(data["trends"][0]["build_time_ms"], json!(1000));
+        assert_eq!(data["latest"]["status"], json!("done"), "status {status}");
+        assert_eq!(data["trends"][0][field], json!(null), "status {status}");
     }
 }
 
@@ -368,10 +532,10 @@ async fn a_run_without_a_workload_has_null_memory_cpu_and_http_metrics() {
 }
 
 #[tokio::test]
-async fn a_run_where_every_step_was_skipped_has_six_null_metrics() {
+async fn a_run_where_every_step_was_skipped_has_six_null_metrics_and_no_runtime() {
     let data = overview_of(skipped(id(1))).await;
 
-    assert_eq!(data["totals"], json!({ "total_runs": 1 }));
+    assert_eq!(data["totals"]["total_runs"], json!(1));
     assert_eq!(
         data["trends"],
         json!([point(
@@ -387,13 +551,14 @@ async fn a_run_where_every_step_was_skipped_has_six_null_metrics() {
         )])
     );
     assert_eq!(data["latest"]["discovery"], json!({ "runtime": null }));
+    assert_eq!(data["project"]["runtime"], json!(null));
 }
 
 #[tokio::test]
 async fn a_measured_zero_stays_zero() {
     let mut run = result(id(1));
 
-    run.metrics.build_time.duration_ms = Some(0);
+    run.metrics.build_time.as_mut().unwrap().duration_ms = Some(0);
     run.metrics.memory.as_mut().unwrap().peak.rss_bytes = 0;
     run.metrics.cpu.as_mut().unwrap().average_percent = 0.0;
     run.metrics
@@ -432,7 +597,7 @@ async fn the_overview_route_rejects_other_methods() {
 }
 
 #[tokio::test]
-async fn query_parameters_are_ignored() {
+async fn unknown_query_parameters_are_ignored() {
     let repository = Arc::new(InMemoryRepository::default());
 
     seed(&repository, 2);

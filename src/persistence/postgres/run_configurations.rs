@@ -9,6 +9,7 @@ use crate::{
     },
     persistence::{
         error::PersistenceError,
+        path::trim_trailing_slashes,
         repository::{ConfigurationLookup, StoredConfigurationRun},
     },
 };
@@ -53,7 +54,7 @@ pub async fn insert(
     .bind(configuration.source)
     .bind(configuration.target_id.as_deref())
     .bind(configuration.target_name.as_deref())
-    .bind(configuration.target_path.as_str())
+    .bind(trim_trailing_slashes(&configuration.target_path))
     .bind(startup.map(|startup| startup.program.as_str()))
     .bind(startup.map(|startup| startup.args.clone()))
     .bind(readiness.map(|readiness| readiness.readiness_type.as_str()))
@@ -83,7 +84,7 @@ pub async fn get(pool: &PgPool, run_id: Uuid) -> Result<ConfigurationLookup, Per
     let sql = format!(
         "SELECT {SELECT_COLUMNS} FROM benchmark_runs r \
          LEFT JOIN benchmark_run_configurations c ON c.run_id = r.id \
-         WHERE r.id = $1"
+         WHERE r.id = $1 AND r.deleted_at IS NULL"
     );
 
     let row = sqlx::query(&sql).bind(run_id).fetch_optional(pool).await?;
@@ -114,6 +115,7 @@ pub async fn list(
          FROM benchmark_runs r \
          LEFT JOIN benchmark_run_configurations c ON c.run_id = r.id \
          LEFT JOIN benchmark_startups s ON s.benchmark_run_id = r.id \
+         WHERE r.deleted_at IS NULL \
          ORDER BY r.created_at DESC, r.id DESC LIMIT $1"
     );
 

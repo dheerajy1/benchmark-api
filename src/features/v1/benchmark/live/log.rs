@@ -75,6 +75,8 @@ pub struct EventLog {
     dropped_through_seq: u64,
     status: RunStatus,
     current_stage: Option<String>,
+    // The workload progress of the newest sample, kept apart so evicting samples loses nothing
+    latest_progress: Option<Value>,
     terminal_at: Option<Instant>,
 }
 
@@ -94,6 +96,7 @@ impl EventLog {
             dropped_through_seq: 0,
             status: RunStatus::Running,
             current_stage: None,
+            latest_progress: None,
             terminal_at: None,
         }
     }
@@ -118,6 +121,12 @@ impl EventLog {
             && let Some(stage) = data.get("stage").and_then(Value::as_str)
         {
             self.current_stage = Some(stage.to_string());
+        }
+
+        if event_kind == kind::SAMPLE
+            && let Some(progress) = data.get("http").and_then(|http| http.get("progress"))
+        {
+            self.latest_progress = Some(progress.clone());
         }
 
         let run_event = RunEvent {
@@ -190,6 +199,15 @@ impl EventLog {
     // The stage that was started last, used to say where a run failed
     pub fn current_stage(&self) -> Option<&str> {
         self.current_stage.as_deref()
+    }
+
+    // The workload progress of the newest sample, None before the workload sampled anything
+    pub fn latest_progress(&self) -> Option<&Value> {
+        self.latest_progress.as_ref()
+    }
+
+    pub fn elapsed_ms(&self) -> u64 {
+        self.started.elapsed().as_millis() as u64
     }
 
     pub fn terminal_at(&self) -> Option<Instant> {

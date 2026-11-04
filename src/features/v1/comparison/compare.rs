@@ -2,7 +2,7 @@ use chrono::SecondsFormat;
 
 use crate::{
     features::v1::benchmark::{
-        model::{ArtifactSizeCategory, BenchmarkResult, HttpLatency},
+        model::{ArtifactSize, ArtifactSizeCategory, BenchmarkResult, HttpLatency},
         workspace::result::WorkspaceResult,
     },
     persistence::stored_run::StoredRun,
@@ -31,8 +31,8 @@ pub fn compare(baseline: &StoredRun, comparison: &StoredRun) -> ComparisonRespon
         comparison: reference(comparison),
         metrics: ComparisonMetrics {
             build_time: BuildTimeComparison {
-                baseline_status: base.metrics.build_time.status.clone(),
-                comparison_status: comp.metrics.build_time.status.clone(),
+                baseline_status: build_status(base),
+                comparison_status: build_status(comp),
                 duration_ms: metric::integer(
                     build_duration(base),
                     build_duration(comp),
@@ -40,8 +40,8 @@ pub fn compare(baseline: &StoredRun, comparison: &StoredRun) -> ComparisonRespon
                 ),
             },
             startup_time: StartupTimeComparison {
-                baseline_status: base.metrics.startup_time.status.clone(),
-                comparison_status: comp.metrics.startup_time.status.clone(),
+                baseline_status: startup_status(base),
+                comparison_status: startup_status(comp),
                 duration_ms: metric::integer(
                     startup_duration(base),
                     startup_duration(comp),
@@ -95,9 +95,9 @@ pub fn compare(baseline: &StoredRun, comparison: &StoredRun) -> ComparisonRespon
                 ),
             },
             artifact_size: ArtifactSizeComparison {
-                source: category(base, comp, |run| &run.metrics.artifact_size.source),
-                build: category(base, comp, |run| &run.metrics.artifact_size.build),
-                excluded: category(base, comp, |run| &run.metrics.artifact_size.excluded),
+                source: category(base, comp, |size| &size.source),
+                build: category(base, comp, |size| &size.build),
+                excluded: category(base, comp, |size| &size.excluded),
             },
             workspaces: compare_workspaces(base, comp),
         },
@@ -201,24 +201,35 @@ fn reference(run: &StoredRun) -> RunReference {
     }
 }
 
-fn build_duration(run: &BenchmarkResult) -> Option<u64> {
-    let build = &run.metrics.build_time;
+// None when the run stopped before the step finished
+fn build_status(run: &BenchmarkResult) -> Option<String> {
+    run.metrics
+        .build_time
+        .as_ref()
+        .map(|build| build.status.clone())
+}
 
-    if build.status == STATUS_SUCCESS {
-        build.duration_ms
-    } else {
-        None
-    }
+fn startup_status(run: &BenchmarkResult) -> Option<String> {
+    run.metrics
+        .startup_time
+        .as_ref()
+        .map(|startup| startup.status.clone())
+}
+
+fn build_duration(run: &BenchmarkResult) -> Option<u64> {
+    run.metrics
+        .build_time
+        .as_ref()
+        .filter(|build| build.status == STATUS_SUCCESS)
+        .and_then(|build| build.duration_ms)
 }
 
 fn startup_duration(run: &BenchmarkResult) -> Option<u64> {
-    let startup = &run.metrics.startup_time;
-
-    if startup.status == STATUS_SUCCESS {
-        startup.duration_ms
-    } else {
-        None
-    }
+    run.metrics
+        .startup_time
+        .as_ref()
+        .filter(|startup| startup.status == STATUS_SUCCESS)
+        .and_then(|startup| startup.duration_ms)
 }
 
 fn http_status(run: &BenchmarkResult) -> Option<String> {
@@ -264,19 +275,25 @@ fn decimal(
     metric::decimal(read(baseline), read(comparison), Direction::LowerIsBetter)
 }
 
-// Bytes and file count are both lower is better
+// Bytes and file count are both lower is better. A run that stopped before the size was
+// measured has nothing to compare, that side is null.
 fn category(
     baseline: &BenchmarkResult,
     comparison: &BenchmarkResult,
-    read: impl Fn(&BenchmarkResult) -> &ArtifactSizeCategory,
+    read: impl Fn(&ArtifactSize) -> &ArtifactSizeCategory,
 ) -> ArtifactCategoryComparison {
-    let (base, comp) = (read(baseline), read(comparison));
+    let base = baseline.metrics.artifact_size.as_ref().map(&read);
+    let comp = comparison.metrics.artifact_size.as_ref().map(&read);
 
     ArtifactCategoryComparison {
-        bytes: metric::integer(Some(base.bytes), Some(comp.bytes), Direction::LowerIsBetter),
+        bytes: metric::integer(
+            base.map(|category| category.bytes),
+            comp.map(|category| category.bytes),
+            Direction::LowerIsBetter,
+        ),
         file_count: metric::integer(
-            Some(base.file_count),
-            Some(comp.file_count),
+            base.map(|category| category.file_count),
+            comp.map(|category| category.file_count),
             Direction::LowerIsBetter,
         ),
     }

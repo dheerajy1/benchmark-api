@@ -13,6 +13,7 @@ mod benchmark {
     pub mod duration;
     pub mod errors;
     pub mod fake_repository;
+    pub mod health_api;
     pub mod history_api;
     pub mod history_cursor;
     pub mod http_latency;
@@ -21,8 +22,10 @@ mod benchmark {
     pub mod overview_api;
     pub mod readiness;
     pub mod request;
+    pub mod request_id_api;
     pub mod runtime;
     pub mod service;
+    pub mod stage_averages_api;
     pub mod startup_time;
     pub mod target_process;
     pub mod test_server;

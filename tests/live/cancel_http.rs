@@ -212,12 +212,12 @@ async fn cancelling_over_http_stops_the_run_and_nothing_is_stored() {
     assert_eq!(names.last().unwrap(), "run.cancelled");
     assert_eq!(
         replay["events"].as_array().unwrap().last().unwrap()["data"]["persisted"],
-        json!(false)
+        json!(true)
     );
     assert!(!replay.to_string().contains(&token));
 
-    // Nothing was saved, so the history has no such run
-    assert!(repository.saved_run_ids().is_empty());
+    // The partial result was saved, so the history has the run
+    assert_eq!(repository.saved_run_ids(), vec![run_id]);
 
     let (status, _) = send(
         router.clone(),
@@ -225,7 +225,7 @@ async fn cancelling_over_http_stops_the_run_and_nothing_is_stored() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -525,21 +525,4 @@ async fn after_a_cancellation_over_http_the_next_run_is_accepted_at_once() {
 
     wait_status(&live, second, "completed").await;
     wait_until_slot_free(live.slot()).await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn the_legacy_endpoint_is_not_affected_by_cancellation() {
-    let dir = TempDir::new().unwrap();
-
-    let (router, live) = router_with(
-        Arc::new(InMemoryRepository::default()),
-        Arc::new(ImmediateExecutor),
-    );
-
-    let (status, body) = send(router, post_to("/api/v1/benchmarks", &valid_body(&dir))).await;
-
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["message"], json!("Benchmark completed."));
-    assert!(body["data"].get("cancel_token").is_none());
-    assert!(live.slot().active().is_none());
 }

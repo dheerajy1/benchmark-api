@@ -56,17 +56,68 @@ fn runs_benchmark_and_assembles_result() {
     assert!(result.metrics.memory.is_none());
     assert!(result.metrics.http_latency.is_none());
 
-    assert_eq!(result.metrics.artifact_size.source.bytes, 100);
-    assert_eq!(result.metrics.artifact_size.source.size, "100 B");
-    assert_eq!(result.metrics.artifact_size.source.file_count, 1);
+    assert_eq!(
+        result.metrics.artifact_size.as_ref().unwrap().source.bytes,
+        100
+    );
+    assert_eq!(
+        result.metrics.artifact_size.as_ref().unwrap().source.size,
+        "100 B"
+    );
+    assert_eq!(
+        result
+            .metrics
+            .artifact_size
+            .as_ref()
+            .unwrap()
+            .source
+            .file_count,
+        1
+    );
 
-    assert_eq!(result.metrics.artifact_size.build.bytes, 200);
-    assert_eq!(result.metrics.artifact_size.build.size, "200 B");
-    assert_eq!(result.metrics.artifact_size.build.file_count, 1);
+    assert_eq!(
+        result.metrics.artifact_size.as_ref().unwrap().build.bytes,
+        200
+    );
+    assert_eq!(
+        result.metrics.artifact_size.as_ref().unwrap().build.size,
+        "200 B"
+    );
+    assert_eq!(
+        result
+            .metrics
+            .artifact_size
+            .as_ref()
+            .unwrap()
+            .build
+            .file_count,
+        1
+    );
 
-    assert_eq!(result.metrics.artifact_size.excluded.bytes, 300);
-    assert_eq!(result.metrics.artifact_size.excluded.size, "300 B");
-    assert_eq!(result.metrics.artifact_size.excluded.file_count, 1);
+    assert_eq!(
+        result
+            .metrics
+            .artifact_size
+            .as_ref()
+            .unwrap()
+            .excluded
+            .bytes,
+        300
+    );
+    assert_eq!(
+        result.metrics.artifact_size.as_ref().unwrap().excluded.size,
+        "300 B"
+    );
+    assert_eq!(
+        result
+            .metrics
+            .artifact_size
+            .as_ref()
+            .unwrap()
+            .excluded
+            .file_count,
+        1
+    );
 
     assert!(!Uuid::nil().eq(&result.run_id));
 }
@@ -140,7 +191,10 @@ fn workload_without_a_runnable_target_yields_null_runtime_metrics() {
 
     let result = service::run(&request, &test_env()).unwrap();
 
-    assert_eq!(result.metrics.startup_time.status, "no_start_command");
+    assert_eq!(
+        result.metrics.startup_time.as_ref().unwrap().status,
+        "no_start_command"
+    );
     assert!(result.metrics.memory.is_none());
     assert!(result.metrics.http_latency.is_none());
 }

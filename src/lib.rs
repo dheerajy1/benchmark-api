@@ -5,4 +5,5 @@ pub mod errors;
 pub mod features;
 pub mod origin;
 pub mod persistence;
+pub mod request_id;
 pub mod schemas;

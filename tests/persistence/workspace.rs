@@ -35,14 +35,17 @@ fn docker_result() -> WorkspaceResult {
     });
     result.image = Some(ImageSize {
         bytes: 123_456_789,
-        size: "117.74 MB".to_string(),
+        size: "117.74 MiB".to_string(),
         disk_usage_bytes: Some(276_000_000),
-        disk_usage: Some("263.21 MB".to_string()),
+        disk_usage: Some("263.21 MiB".to_string()),
     });
     result.startup = Some(WorkspaceStartup { duration_ms: 812 });
     result.memory = Some(Memory {
         baseline: reading(1000),
-        peak: reading(1500),
+        peak: MemoryReading {
+            rss_bytes: 1500,
+            rss_size: "1.46 KiB".to_string(),
+        },
         delta: reading(500),
     });
     result.cpu = Some(Cpu {

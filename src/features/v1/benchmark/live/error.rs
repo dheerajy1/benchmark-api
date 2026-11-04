@@ -3,7 +3,7 @@ use crate::errors::{api_error::ApiError, catalog::ErrorCode};
 use super::slot::ActiveRun;
 use crate::features::v1::benchmark::error::BenchmarkError;
 
-// Why a submission was not accepted, shared by the legacy and the live path
+// Why a submission was not accepted
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SubmitError {
     // The request is invalid, no run was created and the slot was not touched
@@ -26,11 +26,7 @@ impl From<SubmitError> for ApiError {
     }
 }
 
-// The error field names the active live run so a client can watch it, a legacy run has
-// no id yet and gets a plain sentence
+// The error field names the active live run so a client can watch it
 fn busy_detail(active: &ActiveRun) -> String {
-    match active.run_id {
-        Some(run_id) => run_id.to_string(),
-        None => "A benchmark is already running.".to_string(),
-    }
+    active.run_id.to_string()
 }

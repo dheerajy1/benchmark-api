@@ -19,9 +19,9 @@ use crate::{
         error::BenchmarkError,
         model::{BenchmarkRequest, BenchmarkResult},
         run_origin::RunOrigin,
-        service,
+        service::{self, RunEnd, RunReport},
     },
-    persistence::repository::BenchmarkRepository,
+    persistence::{outcome::RunOutcome, repository::BenchmarkRepository},
 };
 
 use super::{
@@ -46,6 +46,34 @@ pub trait RunExecutor: Send + Sync {
         ctx: &RunContext,
         permit: &RunPermit,
     ) -> Result<BenchmarkResult, BenchmarkError>;
+
+    // The same run, keeping what finished when it fails or is cancelled. The default wraps
+    // `execute`: an executor that only reports an error leaves nothing to keep, so a failed
+    // or cancelled run is stored without parts.
+    fn execute_report(
+        &self,
+        request: &BenchmarkRequest,
+        target: &Path,
+        env: &Env,
+        run_id: Uuid,
+        ctx: &RunContext,
+        permit: &RunPermit,
+    ) -> RunReport {
+        match self.execute(request, target, env, run_id, ctx, permit) {
+            Ok(result) => RunReport {
+                result,
+                end: RunEnd::Completed,
+            },
+            Err(BenchmarkError::Cancelled) => RunReport {
+                result: BenchmarkResult::empty(run_id, target.display().to_string()),
+                end: RunEnd::Cancelled,
+            },
+            Err(error) => RunReport {
+                result: BenchmarkResult::empty(run_id, target.display().to_string()),
+                end: RunEnd::Failed(error),
+            },
+        }
+    }
 }
 
 // The real benchmark
@@ -62,6 +90,18 @@ impl RunExecutor for ServiceExecutor {
         permit: &RunPermit,
     ) -> Result<BenchmarkResult, BenchmarkError> {
         service::execute(target, request, env, run_id, ctx, permit)
+    }
+
+    fn execute_report(
+        &self,
+        request: &BenchmarkRequest,
+        target: &Path,
+        env: &Env,
+        run_id: Uuid,
+        ctx: &RunContext,
+        permit: &RunPermit,
+    ) -> RunReport {
+        service::execute_report(target, request, env, run_id, ctx, permit)
     }
 }
 
@@ -170,7 +210,7 @@ impl LiveRuns {
 
         let permit = self
             .slot
-            .try_acquire(RunKind::Live, Some(run_id))
+            .try_acquire(RunKind::Live, run_id)
             .map_err(SubmitError::Busy)?;
 
         let entry = self
@@ -285,6 +325,12 @@ struct Supervisor {
     configuration: RunConfiguration,
 }
 
+// How a run that did not complete ended
+enum Stopped {
+    Cancelled,
+    Failed { code: &'static str, message: String },
+}
+
 impl Supervisor {
     // Independent of any HTTP request: nothing a client does can stop it.
     //
@@ -307,63 +353,102 @@ impl Supervisor {
         let env = self.env.clone();
         let run_id = self.run_id;
         let worker_ctx = ctx.clone();
+        let target_text = target.display().to_string();
 
         let joined = tokio::task::spawn_blocking(move || {
             let outcome = catch_unwind(AssertUnwindSafe(|| {
-                executor.execute(&request, &target, &env, run_id, &worker_ctx, &permit)
+                executor.execute_report(&request, &target, &env, run_id, &worker_ctx, &permit)
             }));
 
             (outcome, permit)
         })
         .await;
 
-        match joined {
-            Err(join_error) => fail(
-                &entry,
-                ErrorCode::InternalServerError.as_str(),
-                format!("Benchmark task failed: {join_error}"),
-            ),
+        let report = match joined {
+            Err(join_error) => RunReport {
+                result: BenchmarkResult::empty(run_id, target_text),
+                end: RunEnd::Failed(BenchmarkError::Internal(format!(
+                    "Benchmark task failed: {join_error}"
+                ))),
+            },
             Ok((outcome, permit)) => {
                 ownership.permit = Some(permit);
 
                 match outcome {
-                    Err(payload) => fail(
-                        &entry,
-                        ErrorCode::InternalServerError.as_str(),
-                        format!(
+                    Err(payload) => RunReport {
+                        result: BenchmarkResult::empty(run_id, target_text),
+                        end: RunEnd::Failed(BenchmarkError::Internal(format!(
                             "The benchmark panicked: {}",
                             panic_message(payload.as_ref())
-                        ),
-                    ),
-                    // The execution stopped because it was asked to, so its work is over
-                    Ok(Err(BenchmarkError::Cancelled)) => cancelled(&entry),
-                    // A failure that happened on its own is reported as it happened, even
-                    // when a cancel request arrived at the same time
-                    Ok(Err(error)) => {
-                        let code = ApiError::from(error.clone()).code().as_str();
-
-                        fail(&entry, code, error.to_string());
-                    }
-                    Ok(Ok(result)) => {
-                        // The benchmark finished. If a cancel request got there first the
-                        // result is thrown away and nothing is saved, otherwise cancelling is
-                        // refused from now on and the result is saved.
-                        if entry.control().begin_finalizing() {
-                            self.persist(&entry, &ctx, result).await
-                        } else {
-                            cancelled(&entry)
-                        }
-                    }
+                        ))),
+                    },
+                    Ok(report) => report,
                 }
+            }
+        };
+
+        self.finish(&entry, &ctx, report).await;
+    }
+
+    // Stores the run however it ended, then records the terminal event
+    async fn finish(&self, entry: &RunEntry, ctx: &RunContext, report: RunReport) {
+        let RunReport { result, end } = report;
+
+        match end {
+            RunEnd::Completed => {
+                // The benchmark finished. If a cancel request got there first, the finished
+                // work is kept as a cancelled run, otherwise cancelling is refused from now on.
+                if entry.control().begin_finalizing() {
+                    // Taken before saving starts: the saving stage is added by the repository
+                    let outcome =
+                        RunOutcome::from_result(&result).with_stages(ctx.stage_records(None));
+
+                    self.persist(entry, ctx, result, outcome).await
+                } else {
+                    self.persist_stopped(entry, ctx, result, Stopped::Cancelled)
+                        .await
+                }
+            }
+            RunEnd::Cancelled => {
+                self.persist_stopped(entry, ctx, result, Stopped::Cancelled)
+                    .await
+            }
+            RunEnd::Failed(error) => {
+                // A failure that happened on its own is reported as it happened, even when a
+                // cancel request arrived at the same time. Cancelling is refused from now on.
+                entry.control().begin_finalizing();
+
+                let code = ApiError::from(error.clone()).code().as_str();
+
+                self.persist_stopped(
+                    entry,
+                    ctx,
+                    result,
+                    Stopped::Failed {
+                        code,
+                        message: error.to_string(),
+                    },
+                )
+                .await
             }
         }
     }
 
     // The run is only reported as completed once it is stored in one transaction
-    async fn persist(&self, entry: &RunEntry, ctx: &RunContext, result: BenchmarkResult) {
+    async fn persist(
+        &self,
+        entry: &RunEntry,
+        ctx: &RunContext,
+        result: BenchmarkResult,
+        outcome: RunOutcome,
+    ) {
         ctx.stage_started(Stage::Saving);
 
-        match self.repository.save(&result, &self.configuration).await {
+        match self
+            .repository
+            .save_run(&result, &self.configuration, outcome)
+            .await
+        {
             Ok(()) => {
                 ctx.stage_completed(Stage::Saving, "success", None);
 
@@ -381,32 +466,88 @@ impl Supervisor {
             ),
         }
     }
+
+    // A failed or cancelled run is stored with every part that finished, and the stage where
+    // it stopped. If storing fails the event says so with persisted false.
+    async fn persist_stopped(
+        &self,
+        entry: &RunEntry,
+        ctx: &RunContext,
+        result: BenchmarkResult,
+        stopped: Stopped,
+    ) {
+        let stage = entry.current_stage();
+
+        let outcome = match &stopped {
+            Stopped::Cancelled => {
+                RunOutcome::cancelled(stage, ctx.stage_records(Some("cancelled")))
+            }
+            Stopped::Failed { message, .. } => {
+                RunOutcome::failed(stage, message.clone(), ctx.stage_records(Some("failed")))
+            }
+        };
+
+        let saved = self
+            .repository
+            .save_run(&result, &self.configuration, outcome)
+            .await;
+
+        let persisted = saved.is_ok();
+
+        let persist_error = saved
+            .err()
+            .map(|error| format!("Failed to persist benchmark result: {error}"));
+
+        match stopped {
+            Stopped::Cancelled => cancelled(entry, persisted, persist_error),
+            Stopped::Failed { code, message } => {
+                fail_stored(entry, code, message, persisted, persist_error)
+            }
+        }
+    }
+}
+
+// Records the terminal failure of a run that could not be stored
+fn fail(entry: &RunEntry, code: &str, message: String) {
+    fail_stored(entry, code, message, false, None);
 }
 
 // Records the terminal failure of a run, with the stage that was last started
-fn fail(entry: &RunEntry, code: &str, message: String) {
+fn fail_stored(
+    entry: &RunEntry,
+    code: &str,
+    message: String,
+    persisted: bool,
+    persist_error: Option<String>,
+) {
     let stage = entry.current_stage();
 
-    let _ = entry.append(
-        kind::RUN_FAILED,
-        json!({
-            "code": code,
-            "message": message,
-            "stage": stage,
-            "persisted": false,
-        }),
-    );
+    let mut data = json!({
+        "code": code,
+        "message": message,
+        "stage": stage,
+        "persisted": persisted,
+    });
+
+    if let Some(error) = persist_error {
+        data["persist_error"] = json!(error);
+    }
+
+    let _ = entry.append(kind::RUN_FAILED, data);
 }
 
 // Records that the run stopped on request. Only called once the execution has returned, so its
 // work and its cleanup are over.
-fn cancelled(entry: &RunEntry) {
+fn cancelled(entry: &RunEntry, persisted: bool, persist_error: Option<String>) {
     let stage = entry.current_stage();
 
-    let _ = entry.append(
-        kind::RUN_CANCELLED,
-        json!({ "stage": stage, "persisted": false }),
-    );
+    let mut data = json!({ "stage": stage, "persisted": persisted });
+
+    if let Some(error) = persist_error {
+        data["persist_error"] = json!(error);
+    }
+
+    let _ = entry.append(kind::RUN_CANCELLED, data);
 }
 
 fn panic_message(payload: &(dyn Any + Send)) -> String {

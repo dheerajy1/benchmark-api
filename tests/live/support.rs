@@ -23,10 +23,10 @@ use benchmark_api::{
         model::{BenchmarkRequest, BenchmarkResult},
     },
     persistence::{
-        history::SummaryQuery,
+        history::{ProjectTotals, SummaryQuery, TrendQuery},
         repository::{
-            BenchmarkRepository, CountFuture, GetFuture, ListFuture, PersistFuture, RunsFuture,
-            TrendsFuture,
+            BenchmarkRepository, CountFuture, GetFuture, ListFuture, PersistFuture, PingFuture,
+            ProjectTotalsFuture, ProjectsFuture, RunsFuture, StageRunsFuture, TrendsFuture,
         },
     },
 };
@@ -55,7 +55,7 @@ pub fn request_for(dir: &Path) -> BenchmarkRequest {
 pub fn post_json(body: &str) -> Request<Body> {
     Request::builder()
         .method(Method::POST)
-        .uri("/api/v1/benchmarks")
+        .uri("/api/v1/live-runs")
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_string()))
         .unwrap()
@@ -170,7 +170,7 @@ impl RunExecutor for FailingExecutor {
         _request: &BenchmarkRequest,
         _target: &Path,
         _env: &Env,
-        _run_id: Uuid,
+        _run_id: uuid::Uuid,
         ctx: &RunContext,
         _permit: &RunPermit,
     ) -> Result<BenchmarkResult, BenchmarkError> {
@@ -188,7 +188,7 @@ impl RunExecutor for PanickingExecutor {
         _request: &BenchmarkRequest,
         _target: &Path,
         _env: &Env,
-        _run_id: Uuid,
+        _run_id: uuid::Uuid,
         ctx: &RunContext,
         _permit: &RunPermit,
     ) -> Result<BenchmarkResult, BenchmarkError> {
@@ -550,10 +550,11 @@ impl SlowRepository {
 }
 
 impl BenchmarkRepository for SlowRepository {
-    fn save<'a>(
+    fn save_run<'a>(
         &'a self,
         result: &'a BenchmarkResult,
         _configuration: &'a benchmark_api::features::v1::benchmark::configuration::RunConfiguration,
+        _outcome: benchmark_api::persistence::outcome::RunOutcome,
     ) -> PersistFuture<'a> {
         Box::pin(async move {
             tokio::time::sleep(self.delay).await;
@@ -566,7 +567,7 @@ impl BenchmarkRepository for SlowRepository {
 
     fn get_configuration<'a>(
         &'a self,
-        _run_id: Uuid,
+        _run_id: uuid::Uuid,
     ) -> benchmark_api::persistence::repository::ConfigurationFuture<'a> {
         Box::pin(async {
             Ok(benchmark_api::persistence::repository::ConfigurationLookup::RunMissing)
@@ -584,6 +585,20 @@ impl BenchmarkRepository for SlowRepository {
         Box::pin(async { Ok(Vec::new()) })
     }
 
+    fn delete_run<'a>(
+        &'a self,
+        _run_id: uuid::Uuid,
+    ) -> benchmark_api::persistence::repository::DeleteFuture<'a> {
+        Box::pin(async { Ok(false) })
+    }
+
+    fn count_history<'a>(
+        &'a self,
+        _query: &'a benchmark_api::persistence::history::SummaryQuery,
+    ) -> benchmark_api::persistence::repository::HistoryCountsFuture<'a> {
+        Box::pin(async { Ok(benchmark_api::persistence::history::HistoryCounts::default()) })
+    }
+
     fn get_runs<'a>(&'a self, _run_ids: &'a [Uuid]) -> RunsFuture<'a> {
         Box::pin(async { Ok(Vec::new()) })
     }
@@ -596,7 +611,23 @@ impl BenchmarkRepository for SlowRepository {
         Box::pin(async { Ok(0) })
     }
 
-    fn list_trends<'a>(&'a self, _limit: i64) -> TrendsFuture<'a> {
+    fn list_trends<'a>(&'a self, _query: &'a TrendQuery) -> TrendsFuture<'a> {
         Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn list_projects<'a>(&'a self) -> ProjectsFuture<'a> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn project_totals<'a>(&'a self, _target_path: &'a str) -> ProjectTotalsFuture<'a> {
+        Box::pin(async { Ok(ProjectTotals::default()) })
+    }
+
+    fn recent_stage_runs<'a>(&'a self, _target_path: &'a str, _limit: i64) -> StageRunsFuture<'a> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn ping<'a>(&'a self) -> PingFuture<'a> {
+        Box::pin(async { Ok(()) })
     }
 }

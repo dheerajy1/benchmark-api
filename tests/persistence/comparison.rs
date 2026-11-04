@@ -119,10 +119,16 @@ async fn two_stored_runs_are_compared_from_sql() {
     // The comparison run: half the build time, double CPU, half the peak memory
     let mut comparison = sample::result();
 
-    comparison.metrics.build_time.duration_ms = Some(921);
+    comparison.metrics.build_time.as_mut().unwrap().duration_ms = Some(921);
     comparison.metrics.cpu.as_mut().unwrap().average_percent = 24.8;
     comparison.metrics.memory.as_mut().unwrap().peak.rss_bytes = 36_700_160;
-    comparison.metrics.artifact_size.build.bytes = 400;
+    comparison
+        .metrics
+        .artifact_size
+        .as_mut()
+        .unwrap()
+        .build
+        .bytes = 400;
 
     repository.save(&baseline, &configuration()).await.unwrap();
     repository

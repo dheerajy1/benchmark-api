@@ -36,6 +36,14 @@ pub enum CancelOutcome {
     Finished(RunStatus),
 }
 
+// A snapshot of a run that is still going
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunProgress {
+    pub stage: Option<String>,
+    pub elapsed_ms: u64,
+    pub workload: Option<Value>,
+}
+
 // One run in the registry, shared by the supervisor that writes and the readers
 pub struct RunEntry {
     run_id: Uuid,
@@ -163,6 +171,17 @@ impl RunEntry {
 
     pub fn terminal_at(&self) -> Option<Instant> {
         lock(&self.log).terminal_at()
+    }
+
+    // Where the run is now: its stage, the time since it was accepted and the workload progress
+    pub fn progress(&self) -> RunProgress {
+        let log = lock(&self.log);
+
+        RunProgress {
+            stage: log.current_stage().map(str::to_string),
+            elapsed_ms: log.elapsed_ms(),
+            workload: log.latest_progress().cloned(),
+        }
     }
 }
 

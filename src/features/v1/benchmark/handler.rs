@@ -1,111 +1,29 @@
-use axum::{
-    Router,
-    extract::State,
-    routing::{get, post},
-};
+use axum::{Router, routing::get};
 
-use uuid::Uuid;
+use crate::{app_state::AppState, errors::fallback::method_not_allowed};
 
-use crate::{
-    app_state::AppState,
-    errors::{
-        api_error::ApiError, catalog::ErrorCode, fallback::method_not_allowed, response::ApiSuccess,
-    },
-    features::v1::targets::{
-        incoming::IncomingRun,
-        resolve::{ResolvedRun, resolve},
-    },
-};
+use super::history;
 
-use super::{
-    configuration::RunConfiguration,
-    history,
-    live::{RunContext, RunKind, SubmitError},
-    model::BenchmarkResult,
-    service,
-};
-
-async fn benchmark(
-    State(state): State<AppState>,
-    incoming: IncomingRun,
-) -> Result<ApiSuccess<BenchmarkResult>, ApiError> {
-    let env = state.env.clone();
-
-    // The raw body and the switch are checked before anything is held
-    let ResolvedRun { request, origin } = resolve(&state.policy, incoming)?;
-
-    // The configuration is captured before the request moves into the benchmark
-    let configuration = RunConfiguration::from_request(&request, &origin);
-
-    // Validation comes first and holds nothing, so an invalid request is still a 400
-    // while another benchmark is running
-    let target = service::prepare(&request)?;
-
-    // The execution slot is shared with the live runs, a second benchmark is refused
-    let permit = state
-        .live
-        .slot()
-        .try_acquire(RunKind::Legacy, None)
-        .map_err(|active| ApiError::from(SubmitError::Busy(active)))?;
-
-    // The benchmark blocks for a long time and uses reqwest::blocking, so it must
-    // run on a blocking thread and not on an async worker.
-    //
-    // The permit moves into the closure and comes back with the result. If the client
-    // disconnects, the handler future is dropped but this closure keeps running, and
-    // the permit is only released when the benchmark itself has finished.
-    let joined = tokio::task::spawn_blocking(move || {
-        let run_id = Uuid::now_v7();
-        let ctx = RunContext::noop();
-        let result = service::execute(&target, &request, &env, run_id, &ctx, &permit);
-
-        (result, permit)
-    })
-    .await
-    .map_err(|error| {
-        ApiError::new(
-            ErrorCode::InternalServerError,
-            format!("Benchmark task failed: {error}"),
-        )
-    })?;
-
-    let (result, permit) = joined;
-    let result = result?;
-
-    // The result is only reported as completed once it is stored in one transaction
-    state
-        .repository
-        .save(&result, &configuration)
-        .await
-        .map_err(|error| {
-            ApiError::new(
-                ErrorCode::InternalServerError,
-                format!("Failed to persist benchmark result: {error}"),
-            )
-        })?;
-
-    // Released after the result is stored, and on every error path above when the
-    // permit goes out of scope
-    drop(permit);
-
-    Ok(ApiSuccess::ok("Benchmark completed.", result))
-}
-
+// A benchmark is started with POST /api/v1/live-runs only, POST /benchmarks answers 405
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
             "/benchmarks",
-            post(benchmark)
-                .get(history::handler::list)
-                .fallback(method_not_allowed),
+            get(history::handler::list).fallback(method_not_allowed),
         )
         .route(
             "/benchmarks/configurations",
             get(history::config::list).fallback(method_not_allowed),
         )
         .route(
+            "/benchmarks/stage-averages",
+            get(history::stage_averages::handler).fallback(method_not_allowed),
+        )
+        .route(
             "/benchmarks/{run_id}",
-            get(history::handler::detail).fallback(method_not_allowed),
+            get(history::handler::detail)
+                .delete(history::handler::delete)
+                .fallback(method_not_allowed),
         )
         .route(
             "/benchmarks/{run_id}/config",

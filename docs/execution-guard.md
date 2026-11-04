@@ -1,7 +1,7 @@
 # Execution guard and live-run core (Phase 1)
 
-At most one benchmark executes at a time. The slot is shared by the blocking
-`POST /api/v1/benchmarks` and by live runs, so the two paths can never overlap.
+At most one benchmark executes at a time. Live runs (`POST /api/v1/live-runs`) are the only way to start one,
+the old blocking `POST /api/v1/benchmarks` and its `Legacy` run kind were removed.
 
 ## Where the slot lives
 
@@ -12,27 +12,9 @@ that holds the slot. A `RunPermit` can only be created by `try_acquire`, and
 benchmark without owning the slot does not compile. The permit-less `service::run`
 remains only as the original entry point for the existing tests; no handler calls it.
 
-## Legacy `POST /api/v1/benchmarks`
-
-| Step | What happens | Slot |
-|---|---|---|
-| 1 | JSON parsed (rejections are the existing 400) | free |
-| 2 | `service::prepare`: validation and target path (existing 400s) | free |
-| 3 | `try_acquire(Legacy)`; a busy slot returns `409 CONFLICT` | taken |
-| 4 | `spawn_blocking`: the permit moves into the closure, the benchmark runs | held |
-| 5 | The closure returns the result together with the permit | held |
-| 6 | `repository.save` in one transaction | held |
-| 7 | `drop(permit)`, then the response | released |
-
-Other release points: any error after step 3 releases it when the handler returns; a
-panic inside the closure releases it on unwind; if the client disconnects, the handler
-future is dropped but the closure keeps running, and the permit is released when the
-closure ends (the dropped output is dropped by the runtime). A disconnect during
-step 6 drops the permit with the handler future, after the target has already been shut
-down.
-
-Unchanged by design: after a client disconnect the benchmark still runs to the end and its
-result is not saved.
+`GET /api/v1/live-runs/active` reads the slot (`RunSlot::active`) and the registry entry of the run it names. It never
+takes the slot and never changes a run, so it needs no guard. The slot always holds a live run, so the answer always has a
+run id, a stage and an elapsed time (`elapsed_ms` is `null` only in the instant before the run is registered).
 
 ## Live submission (`LiveRuns::submit`)
 
@@ -43,7 +25,7 @@ result is not saved.
 | 3 | The run is registered and `run.accepted` (seq 1) is appended | held |
 | 4 | A supervisor task is spawned and owns the permit | held |
 | 5 | `spawn_blocking`: the permit moves in and comes back; a panic is caught inside | held |
-| 6 | `repository.save`; only a successful save leads to `run.completed` | held |
+| 6 | `repository.save_run`; a run that ended is stored whether it completed, failed or was cancelled, and only a successful save of a finished run leads to `run.completed` | held |
 | 7 | The terminal event is appended, then the permit is dropped | released |
 
 `RunOwnership` records a terminal `run.failed` in its `Drop` when none exists and only

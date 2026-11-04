@@ -10,6 +10,7 @@ mod fake_repository;
 mod comparison_sample;
 
 mod live {
+    pub mod active;
     pub mod cancel;
     pub mod cancel_http;
     pub mod cancel_stages;

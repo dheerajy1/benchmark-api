@@ -5,7 +5,11 @@ use uuid::Uuid;
 
 use crate::{
     features::v1::benchmark::model::BenchmarkResult,
-    persistence::{error::PersistenceError, stored_run::StoredRun},
+    persistence::{
+        error::PersistenceError,
+        outcome::{StageRecord, StoredStatus},
+        stored_run::StoredRun,
+    },
 };
 
 use super::{
@@ -15,6 +19,8 @@ use super::{
 
 // One row per run with every one-to-one table of the run, the caller adds the WHERE clause. NUMERIC columns are cast to float8.
 const SELECT_RUNS: &str = "SELECT r.id, r.target_path, rt.code AS runtime_code, r.created_at, \
+     r.status AS run_status, r.stopped_stage, r.failure_message, \
+     cfg.target_name, \
      bs.code AS build_status, b.duration_ms AS build_duration_ms, \
      b.program AS build_program, b.args AS build_args, \
      b.working_directory AS build_working_directory, \
@@ -39,6 +45,7 @@ const SELECT_RUNS: &str = "SELECT r.id, r.target_path, rt.code AS runtime_code, 
      h.p99_ms::float8 AS http_p99_ms, h.max_ms::float8 AS http_max_ms \
      FROM benchmark_runs r \
      LEFT JOIN runtimes rt ON rt.id = r.runtime_id \
+     LEFT JOIN benchmark_run_configurations cfg ON cfg.run_id = r.id \
      LEFT JOIN benchmark_builds b ON b.benchmark_run_id = r.id \
      LEFT JOIN benchmark_statuses bs ON bs.id = b.status_id \
      LEFT JOIN benchmark_startups s ON s.benchmark_run_id = r.id \
@@ -52,6 +59,11 @@ const SELECT_ARTIFACT_SIZES: &str = "SELECT a.benchmark_run_id, t.code, a.bytes,
      FROM artifact_sizes a \
      JOIN artifact_types t ON t.id = a.artifact_type_id \
      WHERE a.benchmark_run_id = ANY($1)";
+
+const SELECT_STAGES: &str = "SELECT benchmark_run_id, stage, status, duration_ms \
+     FROM benchmark_run_stages \
+     WHERE benchmark_run_id = ANY($1) \
+     ORDER BY benchmark_run_id, position";
 
 // Workspace results of the requested runs, in the order they were stored (ids are UUIDv7)
 const SELECT_WORKSPACES: &str = "SELECT w.benchmark_run_id, w.workspace_name, w.mode, \
@@ -82,7 +94,7 @@ pub async fn get(pool: &PgPool, run_id: Uuid) -> Result<Option<BenchmarkResult>,
 pub async fn get_many(pool: &PgPool, run_ids: &[Uuid]) -> Result<Vec<StoredRun>, PersistenceError> {
     let mut connection = pool.acquire().await?;
 
-    let sql = format!("{SELECT_RUNS} WHERE r.id = ANY($1)");
+    let sql = format!("{SELECT_RUNS} WHERE r.id = ANY($1) AND r.deleted_at IS NULL");
 
     let rows = sqlx::query(&sql)
         .bind(run_ids)
@@ -91,6 +103,7 @@ pub async fn get_many(pool: &PgPool, run_ids: &[Uuid]) -> Result<Vec<StoredRun>,
 
     let mut artifact_sizes = fetch_artifact_sizes(&mut connection, run_ids).await?;
     let mut workspaces = fetch_workspaces(&mut connection, run_ids).await?;
+    let mut stages = fetch_stages(&mut connection, run_ids).await?;
 
     let mut runs = Vec::with_capacity(rows.len());
 
@@ -101,10 +114,18 @@ pub async fn get_many(pool: &PgPool, run_ids: &[Uuid]) -> Result<Vec<StoredRun>,
 
         let stored = decode(row, sizes, run_workspaces)?;
         let created_at = stored.run.created_at;
+        let status = stored.run.status;
+        let stopped_stage = stored.run.stopped_stage.clone();
+        let failure_message = stored.run.failure_message.clone();
 
         runs.push(StoredRun {
             created_at,
             result: to_result(stored)?,
+            status,
+            stopped_stage,
+            failure_message,
+            target_name: row.try_get("target_name")?,
+            stages: stages.remove(&run_id).unwrap_or_default(),
         });
     }
 
@@ -129,6 +150,41 @@ async fn fetch_artifact_sizes(
             artifact_type_code: row.try_get("code")?,
             bytes: row.try_get("bytes")?,
             file_count: row.try_get("file_count")?,
+        });
+    }
+
+    Ok(grouped)
+}
+
+async fn fetch_stages(
+    connection: &mut PgConnection,
+    run_ids: &[Uuid],
+) -> Result<HashMap<Uuid, Vec<StageRecord>>, PersistenceError> {
+    let rows = sqlx::query(SELECT_STAGES)
+        .bind(run_ids)
+        .fetch_all(&mut *connection)
+        .await?;
+
+    let mut grouped: HashMap<Uuid, Vec<StageRecord>> = HashMap::new();
+
+    for row in &rows {
+        let run_id: Uuid = row.try_get("benchmark_run_id")?;
+        let duration_ms: Option<i64> = row.try_get("duration_ms")?;
+
+        let duration_ms = duration_ms
+            .map(|value| {
+                u64::try_from(value).map_err(|_| {
+                    PersistenceError::InvalidResult(format!(
+                        "stage duration is negative in the database: {value}"
+                    ))
+                })
+            })
+            .transpose()?;
+
+        grouped.entry(run_id).or_default().push(StageRecord {
+            stage: row.try_get("stage")?,
+            status: row.try_get("status")?,
+            duration_ms,
         });
     }
 
@@ -200,10 +256,6 @@ fn decode_workspace(row: &PgRow) -> Result<WorkspaceRow, PersistenceError> {
     })
 }
 
-fn missing_row(table: &str, run_id: Uuid) -> PersistenceError {
-    PersistenceError::InvalidResult(format!("run {run_id} has no {table} row"))
-}
-
 fn decode(
     row: &PgRow,
     artifact_sizes: Vec<StoredArtifactSize>,
@@ -211,19 +263,19 @@ fn decode(
 ) -> Result<StoredBenchmark, PersistenceError> {
     let run_id: Uuid = row.try_get("id")?;
 
+    let status_code: String = row.try_get("run_status")?;
+    let status = StoredStatus::from_code(&status_code).ok_or_else(|| {
+        PersistenceError::InvalidResult(format!("run {run_id} has an unknown status {status_code}"))
+    })?;
+
+    // A part row that does not exist means the run stopped before that step finished
     let build_status: Option<String> = row.try_get("build_status")?;
     let startup_status: Option<String> = row.try_get("startup_status")?;
 
-    Ok(StoredBenchmark {
-        run: RunRow {
-            id: run_id,
-            target_path: row.try_get("target_path")?,
-            runtime_code: row.try_get("runtime_code")?,
-            created_at: row.try_get("created_at")?,
-        },
-        artifact_sizes,
-        build: BuildRow {
-            status_code: build_status.ok_or_else(|| missing_row("benchmark_builds", run_id))?,
+    let build = match build_status {
+        None => None,
+        Some(status_code) => Some(BuildRow {
+            status_code,
             duration_ms: row.try_get("build_duration_ms")?,
             program: row.try_get("build_program")?,
             args: decode_args(row, "build_args")?,
@@ -231,9 +283,13 @@ fn decode(
             started_at: row.try_get("build_started_at")?,
             finished_at: row.try_get("build_finished_at")?,
             exit_code: row.try_get("build_exit_code")?,
-        },
-        startup: StartupRow {
-            status_code: startup_status.ok_or_else(|| missing_row("benchmark_startups", run_id))?,
+        }),
+    };
+
+    let startup = match startup_status {
+        None => None,
+        Some(status_code) => Some(StartupRow {
+            status_code,
             duration_ms: row.try_get("startup_duration_ms")?,
             program: row.try_get("startup_program")?,
             args: decode_args(row, "startup_args")?,
@@ -247,7 +303,22 @@ fn decode(
             readiness_path: row.try_get("readiness_path")?,
             readiness_method: row.try_get("readiness_method")?,
             readiness_expected_status: row.try_get("readiness_expected_status")?,
+        }),
+    };
+
+    Ok(StoredBenchmark {
+        run: RunRow {
+            id: run_id,
+            target_path: row.try_get("target_path")?,
+            runtime_code: row.try_get("runtime_code")?,
+            created_at: row.try_get("created_at")?,
+            status,
+            stopped_stage: row.try_get("stopped_stage")?,
+            failure_message: row.try_get("failure_message")?,
         },
+        artifact_sizes,
+        build,
+        startup,
         memory: decode_memory(row)?,
         cpu: decode_cpu(row)?,
         http_latency: decode_http_latency(row)?,

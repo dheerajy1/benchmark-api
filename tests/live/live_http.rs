@@ -249,25 +249,3 @@ async fn a_plain_get_on_the_socket_route_is_not_an_upgrade() {
 
     assert!(response.status().is_client_error(), "{}", response.status());
 }
-
-#[tokio::test(flavor = "multi_thread")]
-async fn the_legacy_endpoint_and_the_history_routes_are_unchanged_by_the_new_routes() {
-    let dir = TempDir::new().unwrap();
-    let (router, _live) = router_with(Arc::new(ImmediateExecutor));
-
-    let (status, body) = send(
-        router.clone(),
-        post_to("/api/v1/benchmarks", &valid_body(&dir)),
-    )
-    .await;
-
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["message"], json!("Benchmark completed."));
-
-    let run_id = body["data"]["run_id"].as_str().unwrap().to_string();
-
-    let (status, _body) = send(router, get_json(&format!("/api/v1/benchmarks/{run_id}"))).await;
-
-    // The in-memory repository of these tests keeps the run, the route still answers
-    assert!(status == StatusCode::OK || status == StatusCode::NOT_FOUND);
-}

@@ -31,6 +31,8 @@ fn query(limit: i64) -> SummaryQuery {
         after: None,
         runtime_code: None,
         target_path: None,
+        status: None,
+        search: None,
     }
 }
 

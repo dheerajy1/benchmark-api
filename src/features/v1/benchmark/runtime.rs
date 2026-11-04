@@ -8,7 +8,7 @@ use super::{
         memory::MemoryConfig,
         startup_time::{self, StartupPlan, StartupPreparation},
     },
-    model::{BenchmarkRequest, Cpu, HttpLatency, Memory, StartupTime},
+    model::{BenchmarkRequest, Cpu, HttpLatency, Memory, Metrics, StartupTime},
     stop::Stop,
     target_process::TargetProcess,
     workload::plan::{DEFAULT_REQUEST_TIMEOUT, WorkloadPlan},
@@ -36,14 +36,36 @@ pub struct RuntimeMetrics {
     pub http_latency: Option<HttpLatency>,
 }
 
-impl RuntimeMetrics {
-    fn startup_only(startup_time: StartupTime) -> Self {
-        Self {
+// What the runtime steps have measured so far. It is filled as each step finishes, so a run
+// that stops keeps everything that was complete.
+#[derive(Default)]
+pub struct RuntimeProgress {
+    pub startup_time: Option<StartupTime>,
+    pub memory: Option<Memory>,
+    pub cpu: Option<Cpu>,
+    pub http_latency: Option<HttpLatency>,
+}
+
+impl RuntimeProgress {
+    // Moves what was measured into the metrics of the run
+    pub fn apply(self, metrics: &mut Metrics) {
+        metrics.startup_time = self.startup_time;
+        metrics.memory = self.memory;
+        metrics.cpu = self.cpu;
+        metrics.http_latency = self.http_latency;
+    }
+
+    fn into_metrics(self) -> Result<RuntimeMetrics, Stop> {
+        let startup_time = self
+            .startup_time
+            .ok_or_else(|| Stop::Failed("The startup result is missing.".to_string()))?;
+
+        Ok(RuntimeMetrics {
             startup_time,
-            memory: None,
-            cpu: None,
-            http_latency: None,
-        }
+            memory: self.memory,
+            cpu: self.cpu,
+            http_latency: self.http_latency,
+        })
     }
 }
 
@@ -94,6 +116,42 @@ pub fn run_with_config_observed(
     config: &RuntimeConfig,
     ctx: &RunContext,
 ) -> Result<RuntimeMetrics, Stop> {
+    let mut progress = RuntimeProgress::default();
+
+    run_with_config_observed_into(target, runtime, request, env, config, ctx, &mut progress)?;
+
+    progress.into_metrics()
+}
+
+// Same run, but what finished stays in `progress` even when the run stops with an error
+pub fn run_observed_into(
+    target: &Path,
+    runtime: Option<&str>,
+    request: &BenchmarkRequest,
+    env: &Env,
+    ctx: &RunContext,
+    progress: &mut RuntimeProgress,
+) -> Result<(), Stop> {
+    run_with_config_observed_into(
+        target,
+        runtime,
+        request,
+        env,
+        &RuntimeConfig::default(),
+        ctx,
+        progress,
+    )
+}
+
+pub fn run_with_config_observed_into(
+    target: &Path,
+    runtime: Option<&str>,
+    request: &BenchmarkRequest,
+    env: &Env,
+    config: &RuntimeConfig,
+    ctx: &RunContext,
+    progress: &mut RuntimeProgress,
+) -> Result<(), Stop> {
     let plan = match startup_time::prepare_with_startup(target, runtime, request.startup.as_ref())?
     {
         StartupPreparation::Skipped(result) => {
@@ -109,7 +167,9 @@ pub fn run_with_config_observed(
 
             ctx.stage_skipped(Stage::Workload, reason);
 
-            return Ok(RuntimeMetrics::startup_only(result));
+            progress.startup_time = Some(result);
+
+            return Ok(());
         }
         StartupPreparation::Launch(plan) => plan,
     };
@@ -120,7 +180,7 @@ pub fn run_with_config_observed(
 
     let mut process = TargetProcess::start(&plan.command, &plan.working_directory)?;
 
-    let result = run_phases(&mut process, plan, request, env, config, ctx);
+    let result = run_phases(&mut process, plan, request, env, config, ctx, progress);
 
     // Shutdown happens exactly once, on success and on every error path, and the whole process
     // group is checked to be gone
@@ -132,10 +192,7 @@ pub fn run_with_config_observed(
 // Combines how the phases ended with how the target was stopped. A cancelled run is only
 // reported as cancelled when the target is really gone. For any other ending a target that
 // could not be stopped completely is reported on stderr and the result stands.
-pub fn settle(
-    result: Result<RuntimeMetrics, Stop>,
-    shutdown: Result<(), String>,
-) -> Result<RuntimeMetrics, Stop> {
+pub fn settle<T>(result: Result<T, Stop>, shutdown: Result<(), String>) -> Result<T, Stop> {
     match (result, shutdown) {
         (Err(Stop::Cancelled), Err(message)) => Err(Stop::Failed(format!(
             "The run was cancelled but the target could not be stopped completely: {message}"
@@ -156,7 +213,8 @@ fn run_phases(
     env: &Env,
     config: &RuntimeConfig,
     ctx: &RunContext,
-) -> Result<RuntimeMetrics, Stop> {
+    progress: &mut RuntimeProgress,
+) -> Result<(), Stop> {
     let host = plan.readiness.host.clone();
     let port = plan.readiness.port;
 
@@ -171,17 +229,21 @@ fn run_phases(
     ctx.measurement(Metric::StartupTime, &startup);
     ctx.stage_completed(Stage::Startup, &startup.status, startup.duration_ms);
 
+    // The startup is complete in itself, it is kept even if the workload is cut short
+    let startup_succeeded = startup.status == "success";
+    progress.startup_time = Some(startup);
+
     // Workload, memory and CPU are only meaningful for a ready target
-    if startup.status != "success" {
+    if !startup_succeeded {
         ctx.stage_skipped(Stage::Workload, skip::STARTUP_NOT_SUCCESSFUL);
 
-        return Ok(RuntimeMetrics::startup_only(startup));
+        return Ok(());
     }
 
     let Some(workload) = request.workload.as_ref() else {
         ctx.stage_skipped(Stage::Workload, skip::NO_WORKLOAD);
 
-        return Ok(RuntimeMetrics::startup_only(startup));
+        return Ok(());
     };
 
     let workload_plan = WorkloadPlan::new(workload, &host, port, config.request_timeout)?;
@@ -192,10 +254,9 @@ fn run_phases(
 
     let phase = workload_phase::run_observed(process, &workload_plan, &config.memory, ctx)?;
 
-    Ok(RuntimeMetrics {
-        startup_time: startup,
-        memory: phase.memory,
-        cpu: phase.cpu,
-        http_latency: Some(phase.http_latency),
-    })
+    progress.memory = phase.memory;
+    progress.cpu = phase.cpu;
+    progress.http_latency = Some(phase.http_latency);
+
+    Ok(())
 }

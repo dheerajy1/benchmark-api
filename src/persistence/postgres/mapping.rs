@@ -7,11 +7,15 @@ use crate::{
         StartupTime,
     },
     features::v1::benchmark::workspace::result::WorkspaceResult,
-    persistence::error::PersistenceError,
+    persistence::{
+        error::PersistenceError,
+        outcome::{RunOutcome, StageRecord},
+        path::trim_trailing_slashes,
+    },
 };
 
 use super::rows::{
-    ArtifactSizeRow, BenchmarkRows, BuildRow, CpuRow, HttpLatencyRow, MemoryRow, RunRow,
+    ArtifactSizeRow, BenchmarkRows, BuildRow, CpuRow, HttpLatencyRow, MemoryRow, RunRow, StageRow,
     StartupRow, WorkspaceRow,
 };
 
@@ -22,18 +26,43 @@ pub const ARTIFACT_EXCLUDED: &str = "excluded";
 // The status code of a build or startup that succeeded, shared with the overview query
 pub const STATUS_SUCCESS: &str = "success";
 
-// Maps the benchmark domain result into database rows, without touching the database
+// Maps a run that ran to its end, its status follows from its steps
 pub fn map_result(result: &BenchmarkResult) -> Result<BenchmarkRows, PersistenceError> {
+    map_result_with(result, &RunOutcome::from_result(result))
+}
+
+// Maps the benchmark domain result into database rows, without touching the database.
+// A part that is None (the run stopped before it finished) produces no rows.
+pub fn map_result_with(
+    result: &BenchmarkResult,
+    outcome: &RunOutcome,
+) -> Result<BenchmarkRows, PersistenceError> {
     Ok(BenchmarkRows {
         run: RunRow {
             id: result.run_id,
-            target_path: result.target.path.clone(),
+            target_path: trim_trailing_slashes(&result.target.path).to_string(),
             runtime_code: result.discovery.runtime.clone(),
             created_at: run_created_at(result.run_id)?,
+            status: outcome.status,
+            stopped_stage: outcome.stopped_stage.clone(),
+            failure_message: outcome.failure_message.clone(),
         },
-        artifact_sizes: map_artifact_sizes(&result.metrics.artifact_size)?,
-        build: map_build(&result.metrics.build_time)?,
-        startup: map_startup(&result.metrics.startup_time)?,
+        artifact_sizes: match &result.metrics.artifact_size {
+            Some(sizes) => map_artifact_sizes(sizes)?,
+            None => Vec::new(),
+        },
+        build: result
+            .metrics
+            .build_time
+            .as_ref()
+            .map(map_build)
+            .transpose()?,
+        startup: result
+            .metrics
+            .startup_time
+            .as_ref()
+            .map(map_startup)
+            .transpose()?,
         memory: result.metrics.memory.as_ref().map(map_memory).transpose()?,
         cpu: result.metrics.cpu.as_ref().map(map_cpu),
         http_latency: result
@@ -48,7 +77,33 @@ pub fn map_result(result: &BenchmarkResult) -> Result<BenchmarkRows, Persistence
             .iter()
             .map(map_workspace)
             .collect::<Result<Vec<_>, _>>()?,
+        stages: map_stages(&outcome.stages)?,
     })
+}
+
+// One row per stage key, in run order. A key that repeats keeps its first record.
+fn map_stages(stages: &[StageRecord]) -> Result<Vec<StageRow>, PersistenceError> {
+    let mut rows: Vec<StageRow> = Vec::with_capacity(stages.len());
+
+    for record in stages {
+        if rows.iter().any(|row| row.stage == record.stage) {
+            continue;
+        }
+
+        rows.push(StageRow {
+            position: i32::try_from(rows.len()).map_err(|_| {
+                PersistenceError::InvalidResult("too many stages in one run".to_string())
+            })?,
+            stage: record.stage.clone(),
+            status: record.status.clone(),
+            duration_ms: record
+                .duration_ms
+                .map(|value| to_i64("stage.duration_ms", value))
+                .transpose()?,
+        });
+    }
+
+    Ok(rows)
 }
 
 // u64 domain values must fit the signed BIGINT, never wrap silently

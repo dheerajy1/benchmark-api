@@ -27,6 +27,29 @@ pub struct BenchmarkResult {
     pub metrics: Metrics,
 }
 
+impl BenchmarkResult {
+    // A run that measured nothing yet, the start of a result that is filled step by step
+    pub fn empty(run_id: Uuid, path: String) -> Self {
+        Self {
+            run_id,
+            target: Target { path },
+            discovery: Discovery {
+                runtime: None,
+                build: None,
+            },
+            metrics: Metrics {
+                artifact_size: None,
+                build_time: None,
+                startup_time: None,
+                memory: None,
+                cpu: None,
+                http_latency: None,
+                workspaces: Vec::new(),
+            },
+        }
+    }
+}
+
 #[derive(Clone, Serialize)]
 pub struct Target {
     pub path: String,
@@ -40,9 +63,10 @@ pub struct Discovery {
 
 #[derive(Clone, Serialize)]
 pub struct Metrics {
-    pub artifact_size: ArtifactSize,
-    pub build_time: BuildTime,
-    pub startup_time: StartupTime,
+    // A step that did not finish before the run stopped is null, never a zero
+    pub artifact_size: Option<ArtifactSize>,
+    pub build_time: Option<BuildTime>,
+    pub startup_time: Option<StartupTime>,
     pub memory: Option<Memory>,
     pub cpu: Option<Cpu>,
     pub http_latency: Option<HttpLatency>,

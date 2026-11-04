@@ -1,17 +1,29 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
+use crate::persistence::outcome::StoredStatus;
+
 // Database shaped rows: canonical numbers, typed timestamps, no formatted strings
 
 pub struct BenchmarkRows {
     pub run: RunRow,
     pub artifact_sizes: Vec<ArtifactSizeRow>,
-    pub build: BuildRow,
-    pub startup: StartupRow,
+    // Empty when the run stopped before the artifact size was measured
+    pub build: Option<BuildRow>,
+    pub startup: Option<StartupRow>,
     pub memory: Option<MemoryRow>,
     pub cpu: Option<CpuRow>,
     pub http_latency: Option<HttpLatencyRow>,
     pub workspaces: Vec<WorkspaceRow>,
+    pub stages: Vec<StageRow>,
+}
+
+// How long one stage took, position is the order of the run
+pub struct StageRow {
+    pub position: i32,
+    pub stage: String,
+    pub status: String,
+    pub duration_ms: Option<i64>,
 }
 
 pub struct RunRow {
@@ -19,6 +31,9 @@ pub struct RunRow {
     pub target_path: String,
     pub runtime_code: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub status: StoredStatus,
+    pub stopped_stage: Option<String>,
+    pub failure_message: Option<String>,
 }
 
 pub struct ArtifactSizeRow {

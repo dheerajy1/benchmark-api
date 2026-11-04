@@ -32,7 +32,7 @@ fn serializes_benchmark_result() {
         },
         metrics: Metrics {
             workspaces: Vec::new(),
-            artifact_size: ArtifactSize {
+            artifact_size: Some(ArtifactSize {
                 source: ArtifactSizeCategory {
                     bytes: 100,
                     size: "100 B".to_string(),
@@ -48,8 +48,8 @@ fn serializes_benchmark_result() {
                     size: "300 B".to_string(),
                     file_count: 3,
                 },
-            },
-            build_time: BuildTime {
+            }),
+            build_time: Some(BuildTime {
                 status: "success".to_string(),
                 duration_ms: Some(1842),
                 command: Some(BuildCommand {
@@ -60,8 +60,8 @@ fn serializes_benchmark_result() {
                 started_at: Some("2026-10-04T12:00:00.000Z".to_string()),
                 finished_at: Some("2026-10-04T12:00:01.842Z".to_string()),
                 exit_code: Some(0),
-            },
-            startup_time: StartupTime {
+            }),
+            startup_time: Some(StartupTime {
                 status: "success".to_string(),
                 duration_ms: Some(1842),
                 command: Some(BuildCommand {
@@ -80,7 +80,7 @@ fn serializes_benchmark_result() {
                 started_at: Some("2026-10-04T12:00:00.000Z".to_string()),
                 ready_at: Some("2026-10-04T12:00:01.842Z".to_string()),
                 exit_code: None,
-            },
+            }),
             memory: Some(Memory {
                 baseline: MemoryReading {
                     rss_bytes: 52428800,
@@ -222,7 +222,7 @@ fn serializes_benchmark_result() {
 fn serializes_absent_runtime_metrics_as_null() {
     let metrics = Metrics {
         workspaces: Vec::new(),
-        artifact_size: ArtifactSize {
+        artifact_size: Some(ArtifactSize {
             source: ArtifactSizeCategory {
                 bytes: 0,
                 size: "0 B".to_string(),
@@ -238,8 +238,8 @@ fn serializes_absent_runtime_metrics_as_null() {
                 size: "0 B".to_string(),
                 file_count: 0,
             },
-        },
-        build_time: BuildTime {
+        }),
+        build_time: Some(BuildTime {
             status: "no_build_command".to_string(),
             duration_ms: None,
             command: None,
@@ -247,8 +247,8 @@ fn serializes_absent_runtime_metrics_as_null() {
             started_at: None,
             finished_at: None,
             exit_code: None,
-        },
-        startup_time: StartupTime {
+        }),
+        startup_time: Some(StartupTime {
             status: "no_start_command".to_string(),
             duration_ms: None,
             command: None,
@@ -257,7 +257,7 @@ fn serializes_absent_runtime_metrics_as_null() {
             started_at: None,
             ready_at: None,
             exit_code: None,
-        },
+        }),
         memory: None,
         cpu: None,
         http_latency: None,

@@ -40,6 +40,11 @@ fn catalogue_maps_codes_to_names_and_statuses() {
             "INTERNAL_SERVER_ERROR",
             StatusCode::INTERNAL_SERVER_ERROR,
         ),
+        (
+            ErrorCode::ServiceUnavailable,
+            "SERVICE_UNAVAILABLE",
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
     ];
 
     for (code, name, status) in expected {
@@ -107,6 +112,7 @@ fn body_types_serialize_with_camel_case_keys() {
         code: "INTERNAL_SERVER_ERROR",
         message: "m".to_string(),
         error: "e".to_string(),
+        request_id: Some("a3f09c1e".to_string()),
     })
     .unwrap();
 
@@ -119,6 +125,7 @@ fn body_types_serialize_with_camel_case_keys() {
     .unwrap();
 
     assert!(error.get("httpCode").is_some());
+    assert!(error.get("requestId").is_some());
     assert!(success.get("httpCode").is_some());
 }
 

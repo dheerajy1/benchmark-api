@@ -9,11 +9,11 @@ use benchmark_api::{
     app,
     config::env::Env,
     persistence::{
-        history::SummaryRow, postgres::mapping::run_created_at, repository::BenchmarkRepository,
+        history::SummaryRow, outcome::StoredStatus, postgres::mapping::run_created_at,
+        repository::BenchmarkRepository,
     },
 };
 use serde_json::{Value, json};
-use tempfile::TempDir;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -76,8 +76,12 @@ fn summary(id: Uuid, target_path: &str, runtime: Option<&str>) -> SummaryRow {
     SummaryRow {
         id,
         target_path: target_path.to_string(),
+        target_name: None,
         runtime_code: runtime.map(str::to_string),
+        status: StoredStatus::Done,
         created_at: run_created_at(id).unwrap(),
+        build_output_bytes: Some(4096),
+        workspaces: Vec::new(),
         build_time_ms: Some(1000),
         startup_time_ms: Some(500),
         memory_peak_bytes: Some(2048),
@@ -120,6 +124,14 @@ async fn an_empty_history_returns_an_empty_page() {
     assert_eq!(body["httpCode"], json!(200));
     assert_eq!(body["data"]["items"], json!([]));
     assert_eq!(
+        body["data"]["counts"],
+        json!({
+            "total": 0,
+            "by_runtime": {},
+            "by_status": { "done": 0, "failed": 0, "cancelled": 0 }
+        })
+    );
+    assert_eq!(
         body["data"]["pagination"],
         json!({ "limit": 20, "has_more": false, "next_cursor": null })
     );
@@ -140,12 +152,16 @@ async fn multiple_runs_are_listed_newest_first_as_summaries() {
 
     let item = &body["data"]["items"][0];
 
+    assert_eq!(item["status"], json!("done"));
+    assert_eq!(item["display_name"], json!("api"));
     assert_eq!(item["target"], json!({ "path": "/projects/api" }));
     assert_eq!(item["discovery"], json!({ "runtime": "bun" }));
     assert_eq!(item["created_at"], json!("1970-01-01T00:00:03.000Z"));
     assert_eq!(
         item["summary"],
         json!({
+            "build_output_bytes": 4096,
+            "workspaces": [],
             "build_time_ms": 1000,
             "startup_time_ms": 500,
             "memory_peak_bytes": 2048,
@@ -454,6 +470,8 @@ async fn nullable_runtime_and_metrics_are_reported_as_null() {
     assert_eq!(
         item["summary"],
         json!({
+            "build_output_bytes": 4096,
+            "workspaces": [],
             "build_time_ms": null,
             "startup_time_ms": null,
             "memory_peak_bytes": null,
@@ -465,30 +483,26 @@ async fn nullable_runtime_and_metrics_are_reported_as_null() {
 }
 
 #[tokio::test]
-async fn the_detail_matches_the_post_benchmark_data() {
+async fn the_detail_matches_the_stored_benchmark_data() {
     let repository = Arc::new(InMemoryRepository::default());
-    let temp_dir = TempDir::new().unwrap();
+    let result = super::comparison_sample::result(Uuid::now_v7());
+    let run_id = result.run_id.to_string();
+    let expected = serde_json::to_value(&result).unwrap();
 
-    let request = json!({ "path": temp_dir.path().display().to_string() }).to_string();
-
-    let (post_status, post_body) = send(
-        repository.clone(),
-        Method::POST,
-        "/api/v1/benchmarks",
-        Body::from(request),
-    )
-    .await;
-
-    assert_eq!(post_status, StatusCode::OK);
-
-    let run_id = post_body["data"]["run_id"].as_str().unwrap();
+    repository.seed_result(result);
 
     let (status, body) = get(&repository, &format!("/api/v1/benchmarks/{run_id}")).await;
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["success"], json!(true));
     assert_eq!(body["httpCode"], json!(200));
-    assert_eq!(body["data"], post_body["data"]);
+    assert_eq!(body["data"]["run_id"], expected["run_id"]);
+    assert_eq!(body["data"]["metrics"], expected["metrics"]);
+    assert_eq!(body["data"]["status"], json!("done"));
+    assert_eq!(body["data"]["stopped_stage"], json!(null));
+    assert_eq!(body["data"]["failure_message"], json!(null));
+    assert_eq!(body["data"]["display_name"], json!("api"));
+    assert_eq!(body["data"]["stages"], json!([]));
 }
 
 #[tokio::test]
@@ -550,10 +564,192 @@ async fn the_detail_route_rejects_other_methods() {
     let repository = Arc::new(InMemoryRepository::default());
     let uri = format!("/api/v1/benchmarks/{}", Uuid::now_v7());
 
-    for method in [Method::POST, Method::PUT, Method::DELETE] {
+    for method in [Method::POST, Method::PUT, Method::PATCH] {
         let (status, body) = send(repository.clone(), method, &uri, Body::empty()).await;
 
         assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
         assert_error_shape(&body, 405, "METHOD_NOT_ALLOWED");
     }
+}
+
+fn seed_mixed(repository: &InMemoryRepository) -> Vec<Uuid> {
+    let rows = [
+        (1, "/projects/api", Some("bun"), StoredStatus::Done),
+        (2, "/projects/api", Some("bun"), StoredStatus::Failed),
+        (3, "/projects/web", Some("node"), StoredStatus::Done),
+        (4, "/projects/web", None, StoredStatus::Cancelled),
+    ];
+
+    rows.into_iter()
+        .map(|(number, path, runtime, status)| {
+            let id = v7_at(number * 1000, number);
+            let mut row = summary(id, path, runtime);
+
+            row.status = status;
+            repository.seed_summary(row);
+
+            id
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_status_filter_lists_one_status_and_counts_keep_the_other_pills() {
+    let repository = Arc::new(InMemoryRepository::default());
+    let ids = seed_mixed(&repository);
+
+    let (status, body) = get(&repository, "/api/v1/benchmarks?status=failed").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(run_ids(&body), vec![ids[1].to_string()]);
+    assert_eq!(body["data"]["items"][0]["status"], json!("failed"));
+
+    assert_eq!(
+        body["data"]["counts"],
+        json!({
+            "total": 1,
+            "by_runtime": { "bun": 1 },
+            "by_status": { "done": 2, "failed": 1, "cancelled": 1 }
+        })
+    );
+}
+
+#[tokio::test]
+async fn the_runtime_pills_follow_the_status_filter_and_unknown_is_counted() {
+    let repository = Arc::new(InMemoryRepository::default());
+    seed_mixed(&repository);
+
+    let (_, body) = get(&repository, "/api/v1/benchmarks?runtime=bun").await;
+
+    assert_eq!(
+        body["data"]["counts"],
+        json!({
+            "total": 2,
+            "by_runtime": { "bun": 2, "node": 1, "unknown": 1 },
+            "by_status": { "done": 1, "failed": 1, "cancelled": 0 }
+        })
+    );
+}
+
+#[tokio::test]
+async fn the_search_filter_finds_a_path_or_the_short_id() {
+    let repository = Arc::new(InMemoryRepository::default());
+    let ids = seed_mixed(&repository);
+
+    let (_, body) = get(&repository, "/api/v1/benchmarks?search=WEB").await;
+
+    assert_eq!(run_ids(&body), vec![ids[3].to_string(), ids[2].to_string()]);
+    assert_eq!(body["data"]["counts"]["total"], json!(2));
+
+    let id = ids[0].to_string();
+    let uri = format!("/api/v1/benchmarks?search={}", &id[id.len() - 8..]);
+    let (_, body) = get(&repository, &uri).await;
+
+    assert_eq!(run_ids(&body), vec![id]);
+}
+
+#[tokio::test]
+async fn a_bad_status_or_an_empty_search_is_a_validation_error() {
+    let repository = Arc::new(InMemoryRepository::default());
+
+    for uri in [
+        "/api/v1/benchmarks?status=running",
+        "/api/v1/benchmarks?status=",
+        "/api/v1/benchmarks?search=",
+        "/api/v1/benchmarks?search=%20%20",
+    ] {
+        let (status, body) = get(&repository, uri).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
+        assert_error_shape(&body, 400, "VALIDATION_ERROR");
+    }
+}
+
+#[tokio::test]
+async fn a_trailing_slash_in_the_target_path_filter_is_ignored() {
+    let repository = Arc::new(InMemoryRepository::default());
+    let ids = seed_mixed(&repository);
+
+    let (_, body) = get(
+        &repository,
+        "/api/v1/benchmarks?target_path=/projects/api///",
+    )
+    .await;
+
+    assert_eq!(run_ids(&body), vec![ids[1].to_string(), ids[0].to_string()]);
+}
+
+#[tokio::test]
+async fn a_delete_answers_in_the_envelope_and_the_run_disappears_everywhere() {
+    let repository = Arc::new(InMemoryRepository::default());
+    let ids = seed_mixed(&repository);
+    let uri = format!("/api/v1/benchmarks/{}", ids[1]);
+
+    let (status, body) = send(repository.clone(), Method::DELETE, &uri, Body::empty()).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["success"], json!(true));
+    assert_eq!(body["httpCode"], json!(200));
+    assert_eq!(body["message"], json!("Benchmark deleted."));
+    assert_eq!(body["data"], json!(null));
+
+    let (status, body) = get(&repository, &uri).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_error_shape(&body, 404, "NOT_FOUND");
+
+    let (_, body) = get(&repository, "/api/v1/benchmarks").await;
+
+    assert_eq!(
+        run_ids(&body),
+        vec![ids[3].to_string(), ids[2].to_string(), ids[0].to_string()]
+    );
+    assert_eq!(body["data"]["counts"]["total"], json!(3));
+    assert_eq!(
+        body["data"]["counts"]["by_status"],
+        json!({ "done": 2, "failed": 0, "cancelled": 1 })
+    );
+
+    // Deleting again is not an error
+    let (status, _) = send(repository.clone(), Method::DELETE, &uri, Body::empty()).await;
+
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn deleting_an_unknown_or_malformed_id_is_an_error() {
+    let repository = Arc::new(InMemoryRepository::default());
+
+    let unknown = format!("/api/v1/benchmarks/{}", Uuid::now_v7());
+    let (status, body) = send(repository.clone(), Method::DELETE, &unknown, Body::empty()).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_error_shape(&body, 404, "NOT_FOUND");
+
+    let (status, body) = send(
+        repository.clone(),
+        Method::DELETE,
+        "/api/v1/benchmarks/not-a-uuid",
+        Body::empty(),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_error_shape(&body, 400, "BAD_REQUEST");
+}
+
+#[tokio::test]
+async fn a_storage_failure_while_deleting_is_an_internal_error() {
+    let uri = format!("/api/v1/benchmarks/{}", Uuid::now_v7());
+
+    let (status, body) = send(
+        Arc::new(FailingRepository),
+        Method::DELETE,
+        &uri,
+        Body::empty(),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_error_shape(&body, 500, "INTERNAL_SERVER_ERROR");
 }

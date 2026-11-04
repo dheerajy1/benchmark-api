@@ -42,8 +42,6 @@ TEST_DATABASE_URL="$(grep '^DATABASE_URL=' .env.development | cut -d= -f2-)" car
 
 ```bash
 cargo test --test live overhead -- --ignored --nocapture --test-threads=1 2>&1 | grep -E "test result|FAILED|panicked"
-
-cargo test --test legacy_disconnect -- --ignored --nocapture --test-threads=1 2>&1 | grep -E "PHASE0|test result|FAILED|panicked at"
 ```
 
 Each test creates its own throwaway schema named `test_<uuid>` and drops it afterwards. A test that panics leaves its schema behind. Remove leftovers:

@@ -1,6 +1,6 @@
 # PostgreSQL persistence
 
-Every successful `POST /api/v1/benchmarks` stores its `BenchmarkResult` in PostgreSQL in a single transaction. If storing fails, the endpoint returns `500 INTERNAL_SERVER_ERROR` and nothing is stored.
+Every run that ends, completed, failed or cancelled, is stored in PostgreSQL in a single transaction by the live-run supervisor. If storing fails, nothing is stored and the terminal event of the run says `persisted: false`.
 
 ## Configuration
 
@@ -43,6 +43,9 @@ Migrations live in `migrations/` and are embedded into the binary. The applicati
 | --- | --- |
 | `20261007000001_create_schema.sql` | tables, foreign keys, unique and check constraints, indexes |
 | `20261007000002_seed_lookup_data.sql` | `runtimes`, `artifact_types`, `benchmark_statuses` rows |
+| `20261102000001_run_status_and_stages.sql` | `status`, `stopped_stage`, `failure_message` and `deleted_at` on `benchmark_runs`, the `benchmark_run_stages` table and the partial indexes of the visible runs |
+
+The third migration adds `NOT NULL` columns without a default, so it expects a database without rows. The database was dropped and created again before it, and no old row is carried over.
 
 Optional manual run with `sqlx-cli`:
 
@@ -57,6 +60,8 @@ Applied migrations are never edited. A schema change is a new migration file wit
 ```
 runtimes, artifact_types, benchmark_statuses     lookup tables (id, code, name)
 benchmark_runs                                   root, runtime_id is NULL when no runtime was detected
+                                                 status (done, failed, cancelled), stopped_stage, failure_message, deleted_at
+  benchmark_run_stages                           one row per stage that ran, in run order (position)
   artifact_sizes                                 3 rows per run (source, build, excluded)
   benchmark_builds                               1 row per run
   benchmark_startups                             1 row per run
@@ -73,6 +78,10 @@ benchmark_runs                                   root, runtime_id is NULL when n
 - Memory, CPU and HTTP latency rows are absent when no workload ran.
 - Skipped steps (`no_build_command`, `no_start_command`, `no_port`) still get a row, and their unmeasured columns are `NULL`. `CHECK` constraints keep those columns consistent: a build is either entirely unmeasured or fully measured.
 - Foreign keys use `ON DELETE RESTRICT`.
+- `status` is checked by a `CHECK`, not an enum: `done`, `failed` or `cancelled`. A done run has no `stopped_stage` and no `failure_message`, only a failed run has a message and every failed run has one.
+- `benchmark_run_stages.stage` is one of `discovery`, `artifact_size`, `build`, `startup`, `baseline`, `workload`, `workspaces`, `saving`, or `workspaces:<name>:native` and `workspaces:<name>:docker`. `duration_ms` is `NULL` when the stage has no duration. The `saving` stage is added by the repository at the end of the insert, so it measures the writes.
+- A failed or cancelled run keeps the parts that finished. The parts it never reached have no row, so they read as `null`.
+- Deleting a run is soft: `deleted_at` is set and the first deletion time is kept. Every read filters `deleted_at IS NULL`, and no row of any table is removed, so a restore is one update.
 
 ## Adding a lookup value
 
@@ -116,9 +125,10 @@ LIMIT 1;
 
 `GET /api/v1/benchmarks` and `GET /api/v1/benchmarks/{run_id}` read the same normalized tables. No history or summary table exists and none is needed.
 
-- The list orders by `created_at DESC, id DESC` and pages with `(created_at, id) < (cursor)`. Filters on `runtime_id` (resolved from the runtime code) and `target_path` are applied before the cursor.
-- The detail reads one run across every table and rebuilds the POST result. Formatted strings such as `"50.00 MiB"` are computed again from the stored byte counts.
-- Existing indexes cover the list: `(created_at)`, `(runtime_id, created_at DESC)` and `(target_path, created_at DESC)`.
+- The list orders by `created_at DESC, id DESC` and pages with `(created_at, id) < (cursor)`. Filters on `runtime_id` (resolved from the runtime code), `target_path`, `status` and the search text are applied before the cursor. The search matches the path with `ILIKE` (the wildcards of the text are escaped) and the run id by its last characters or any part.
+- The detail reads one run across every table, plus its stage rows, and rebuilds the result. Formatted strings such as `"50.00 MiB"` are computed again from the stored byte counts.
+- The partial indexes only hold visible runs (`WHERE deleted_at IS NULL`): `(created_at DESC, id DESC)`, `(runtime_id, created_at DESC)`, `(target_path, created_at DESC)` and `(target_path, status, created_at DESC)`, which serves the done-only queries of one project (overview and stage averages).
+- `benchmark_run_stages` has an index on `stage`, and a unique constraint on `(benchmark_run_id, stage)` and on `(benchmark_run_id, position)`, so a run lists its stages in order.
 
 ## Maintenance
 

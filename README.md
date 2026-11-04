@@ -10,7 +10,10 @@ A Rust HTTP API that benchmarks a local project. You give it a project directory
 - Memory (RSS) baseline and peak under load
 - CPU baseline, average and peak under load
 - HTTP latency percentiles and throughput, by request count or sustained duration
-- Persistent history in PostgreSQL with filters and cursor pagination
+- Live runs that can be watched over a WebSocket and cancelled
+- Persistent history in PostgreSQL with status, runtime, path and text filters, counts and cursor pagination. Completed, failed and cancelled runs are all stored, and a run can be deleted (soft delete)
+- A dashboard per project with totals, the latest two runs and a trend
+- Stage averages of a project for the estimate of a new run
 - Comparison of two stored runs with backend-decided improvement direction
 
 Memory and CPU measurement is Linux only (`/proc`).
@@ -19,11 +22,18 @@ Memory and CPU measurement is Linux only (`/proc`).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/v1/benchmarks` | Run a benchmark and store it |
-| `GET` | `/api/v1/benchmarks` | List historical benchmark summaries |
-| `GET` | `/api/v1/benchmarks/{run_id}` | Get one stored benchmark in the POST result shape |
-| `GET` | `/api/v1/benchmarks/overview` | Dashboard totals, the latest run and the trend of the newest 30 runs |
+| `POST` | `/api/v1/live-runs` | Start a benchmark, it is stored when it ends |
+| `GET` | `/api/v1/live-runs/active` | The run that executes now, or `null` |
+| `GET` | `/api/v1/live-runs/{run_id}` | Replay the events of a run |
+| `GET` | `/api/v1/live-runs/{run_id}/ws` | Follow a run over a WebSocket |
+| `POST` | `/api/v1/live-runs/{run_id}/cancel` | Cancel a run |
+| `GET` | `/api/v1/benchmarks` | List historical benchmark summaries with counts |
+| `GET` | `/api/v1/benchmarks/{run_id}` | Get one stored benchmark with its status and stage times |
+| `DELETE` | `/api/v1/benchmarks/{run_id}` | Delete a run (it is hidden from every read) |
+| `GET` | `/api/v1/benchmarks/overview?target_path=` | Dashboard of one project: totals, latest two runs, trend |
+| `GET` | `/api/v1/benchmarks/stage-averages?target_path=` | Average stage durations of the last 3 done runs |
 | `GET` | `/api/v1/comparisons/summary?runIds=<baseline>,<comparison>` | Compare two stored runs |
+| `GET` | `/api/v1/health` | API and database status |
 
 Request and response details are in [docs/api.md](docs/api.md).
 
@@ -54,13 +64,19 @@ cargo run
 | `DATABASE_URL` | PostgreSQL connection string |
 | `TEST_DATABASE_URL` | Optional, enables the real-database tests, passed on the command line only |
 
+## Browser access (CORS)
+
+The API answers browsers from these origins only: `http://localhost:5002`, `http://127.0.0.1:5002`, `http://localhost:8092` and `http://127.0.0.1:8092` (the API's own ports), `http://localhost:5003`, `http://127.0.0.1:5003`, `http://localhost:8093` and `http://127.0.0.1:8093` (the dashboard, 5003 in development and 8093 in production), and the `*.usw3.devtunnels.ms` and `*.trycloudflare.com` tunnels. The list is in `src/origin.rs` and the WebSocket handshake uses the same one. Allowed methods are `GET`, `POST` and `DELETE`, and the `x-request-id` response header is exposed so the dashboard can show it. Details are in [docs/api.md](docs/api.md#cors).
+
 ## Documentation
 
 | Document | Content |
 | --- | --- |
 | [docs/architecture.md](docs/architecture.md) | Layers, modules, request flow, error and response shapes |
 | [docs/lifecycle.md](docs/lifecycle.md) | The benchmark lifecycle step by step |
-| [docs/api.md](docs/api.md) | Endpoints, parameters, pagination, errors |
+| [docs/api.md](docs/api.md) | Endpoints, parameters, pagination, errors, request ids, CORS |
+| [docs/live-runs-api.md](docs/live-runs-api.md) | Live runs, events, WebSocket |
+| [docs/live-run-cancellation.md](docs/live-run-cancellation.md) | Cancelling a run, how stopped runs are stored |
 | [docs/development.md](docs/development.md) | Commands, tests, conventions |
 | [docs/postgres/README.md](docs/postgres/README.md) | Database setup, migrations, schema, maintenance |
 

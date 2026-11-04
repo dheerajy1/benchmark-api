@@ -4,11 +4,10 @@ use uuid::Uuid;
 use crate::{
     app_state::AppState,
     errors::{api_error::ApiError, catalog::ErrorCode, response::ApiSuccess},
-    features::v1::benchmark::model::BenchmarkResult,
 };
 
 use super::{
-    model::BenchmarkPage,
+    model::{BenchmarkDetail, BenchmarkPage},
     query::{ListParams, ListQueryParams},
     service,
 };
@@ -28,17 +27,33 @@ pub async fn list(
     Ok(ApiSuccess::ok("Benchmarks retrieved.", page))
 }
 
-// GET /api/v1/benchmarks/{run_id}
-pub async fn detail(
-    State(state): State<AppState>,
-    Path(run_id): Path<String>,
-) -> Result<ApiSuccess<BenchmarkResult>, ApiError> {
-    let run_id = Uuid::parse_str(&run_id).map_err(|_| {
+fn parse_run_id(run_id: &str) -> Result<Uuid, ApiError> {
+    Uuid::parse_str(run_id).map_err(|_| {
         ApiError::new(
             ErrorCode::BadRequest,
             format!("'{run_id}' is not a valid run id."),
         )
-    })?;
+    })
+}
+
+// DELETE /api/v1/benchmarks/{run_id}
+pub async fn delete(
+    State(state): State<AppState>,
+    Path(run_id): Path<String>,
+) -> Result<ApiSuccess<()>, ApiError> {
+    let run_id = parse_run_id(&run_id)?;
+
+    service::delete(state.repository.as_ref(), run_id).await?;
+
+    Ok(ApiSuccess::ok("Benchmark deleted.", ()))
+}
+
+// GET /api/v1/benchmarks/{run_id}
+pub async fn detail(
+    State(state): State<AppState>,
+    Path(run_id): Path<String>,
+) -> Result<ApiSuccess<BenchmarkDetail>, ApiError> {
+    let run_id = parse_run_id(&run_id)?;
 
     let result = service::get(state.repository.as_ref(), run_id).await?;
 

@@ -16,10 +16,10 @@ use benchmark_api::{
         model::BenchmarkResult,
     },
     persistence::{
-        history::{SummaryQuery, TrendRow},
+        history::{ProjectTotals, SummaryQuery, TrendQuery, TrendRow},
         repository::{
-            BenchmarkRepository, CountFuture, GetFuture, ListFuture, PersistFuture, RunsFuture,
-            TrendsFuture,
+            BenchmarkRepository, CountFuture, GetFuture, ListFuture, PersistFuture, PingFuture,
+            ProjectTotalsFuture, ProjectsFuture, RunsFuture, StageRunsFuture, TrendsFuture,
         },
     },
 };
@@ -61,10 +61,11 @@ impl ProbeRepository {
 }
 
 impl BenchmarkRepository for ProbeRepository {
-    fn save<'a>(
+    fn save_run<'a>(
         &'a self,
         result: &'a BenchmarkResult,
         _configuration: &'a benchmark_api::features::v1::benchmark::configuration::RunConfiguration,
+        _outcome: benchmark_api::persistence::outcome::RunOutcome,
     ) -> PersistFuture<'a> {
         Box::pin(async move {
             let visible = self
@@ -91,7 +92,7 @@ impl BenchmarkRepository for ProbeRepository {
 
     fn get_configuration<'a>(
         &'a self,
-        _run_id: Uuid,
+        _run_id: uuid::Uuid,
     ) -> benchmark_api::persistence::repository::ConfigurationFuture<'a> {
         Box::pin(async {
             Ok(benchmark_api::persistence::repository::ConfigurationLookup::RunMissing)
@@ -109,6 +110,20 @@ impl BenchmarkRepository for ProbeRepository {
         Box::pin(async { Ok(Vec::new()) })
     }
 
+    fn delete_run<'a>(
+        &'a self,
+        _run_id: uuid::Uuid,
+    ) -> benchmark_api::persistence::repository::DeleteFuture<'a> {
+        Box::pin(async { Ok(false) })
+    }
+
+    fn count_history<'a>(
+        &'a self,
+        _query: &'a benchmark_api::persistence::history::SummaryQuery,
+    ) -> benchmark_api::persistence::repository::HistoryCountsFuture<'a> {
+        Box::pin(async { Ok(benchmark_api::persistence::history::HistoryCounts::default()) })
+    }
+
     fn get_runs<'a>(&'a self, _run_ids: &'a [Uuid]) -> RunsFuture<'a> {
         Box::pin(async { Ok(Vec::new()) })
     }
@@ -121,8 +136,24 @@ impl BenchmarkRepository for ProbeRepository {
         Box::pin(async { Ok(0) })
     }
 
-    fn list_trends<'a>(&'a self, _limit: i64) -> TrendsFuture<'a> {
+    fn list_trends<'a>(&'a self, _query: &'a TrendQuery) -> TrendsFuture<'a> {
         Box::pin(async { Ok(Vec::<TrendRow>::new()) })
+    }
+
+    fn list_projects<'a>(&'a self) -> ProjectsFuture<'a> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn project_totals<'a>(&'a self, _target_path: &'a str) -> ProjectTotalsFuture<'a> {
+        Box::pin(async { Ok(ProjectTotals::default()) })
+    }
+
+    fn recent_stage_runs<'a>(&'a self, _target_path: &'a str, _limit: i64) -> StageRunsFuture<'a> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn ping<'a>(&'a self) -> PingFuture<'a> {
+        Box::pin(async { Ok(()) })
     }
 }
 
@@ -213,7 +244,7 @@ async fn the_run_id_exists_before_the_run_finishes_and_the_first_event_is_run_ac
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_execution_error_ends_in_run_failed_and_stores_nothing() {
+async fn an_execution_error_ends_in_run_failed_and_is_stored() {
     let temp_dir = TempDir::new().unwrap();
     let repository = Arc::new(InMemoryRepository::default());
 
@@ -232,12 +263,12 @@ async fn an_execution_error_ends_in_run_failed_and_stores_nothing() {
     assert_eq!(failed.data["code"], json!("INTERNAL_SERVER_ERROR"));
     assert_eq!(failed.data["message"], json!("boom"));
     assert_eq!(failed.data["stage"], json!("build"));
-    assert_eq!(failed.data["persisted"], json!(false));
-    assert!(repository.saved_run_ids().is_empty());
+    assert_eq!(failed.data["persisted"], json!(true));
+    assert_eq!(repository.saved_run_ids(), vec![accepted.run_id]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_panicking_execution_ends_in_run_failed_and_releases_the_slot() {
+async fn a_panicking_execution_ends_in_run_failed_is_stored_and_releases_the_slot() {
     let temp_dir = TempDir::new().unwrap();
     let repository = Arc::new(InMemoryRepository::default());
 
@@ -254,13 +285,13 @@ async fn a_panicking_execution_ends_in_run_failed_and_releases_the_slot() {
     assert_eq!(replay.status, RunStatus::Failed);
     assert_eq!(failed.kind, kind::RUN_FAILED);
     assert_eq!(failed.data["stage"], json!("startup"));
-    assert_eq!(failed.data["persisted"], json!(false));
+    assert_eq!(failed.data["persisted"], json!(true));
 
     let message = failed.data["message"].as_str().unwrap();
 
     assert!(message.contains("panicked"), "{message}");
     assert!(message.contains("executor exploded"), "{message}");
-    assert!(repository.saved_run_ids().is_empty());
+    assert_eq!(repository.saved_run_ids(), vec![accepted.run_id]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -311,7 +342,7 @@ async fn a_second_submission_is_refused_while_the_run_executes_and_accepted_afte
         live.slot().active(),
         Some(ActiveRun {
             kind: RunKind::Live,
-            run_id: Some(first.run_id)
+            run_id: first.run_id
         })
     );
 
@@ -324,7 +355,7 @@ async fn a_second_submission_is_refused_while_the_run_executes_and_accepted_afte
         refused,
         SubmitError::Busy(ActiveRun {
             kind: RunKind::Live,
-            run_id: Some(first.run_id)
+            run_id: first.run_id
         })
     );
 

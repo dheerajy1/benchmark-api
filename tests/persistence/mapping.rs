@@ -84,19 +84,22 @@ fn maps_a_complete_result() {
         vec![("source", 100, 1), ("build", 200, 2), ("excluded", 300, 3)]
     );
 
-    assert_eq!(rows.build.status_code, "success");
-    assert_eq!(rows.build.duration_ms, Some(1842));
-    assert_eq!(rows.build.program.as_deref(), Some("bun"));
+    assert_eq!(rows.build.as_ref().unwrap().status_code, "success");
+    assert_eq!(rows.build.as_ref().unwrap().duration_ms, Some(1842));
+    assert_eq!(rows.build.as_ref().unwrap().program.as_deref(), Some("bun"));
     assert_eq!(
-        rows.build.args,
+        rows.build.as_ref().unwrap().args,
         Some(vec!["run".to_string(), "build".to_string()])
     );
-    assert_eq!(rows.build.exit_code, Some(0));
+    assert_eq!(rows.build.as_ref().unwrap().exit_code, Some(0));
 
-    assert_eq!(rows.startup.status_code, "success");
-    assert_eq!(rows.startup.readiness_port, Some(5001));
-    assert_eq!(rows.startup.readiness_expected_status, Some(200));
-    assert!(rows.startup.ready_at.is_some());
+    assert_eq!(rows.startup.as_ref().unwrap().status_code, "success");
+    assert_eq!(rows.startup.as_ref().unwrap().readiness_port, Some(5001));
+    assert_eq!(
+        rows.startup.as_ref().unwrap().readiness_expected_status,
+        Some(200)
+    );
+    assert!(rows.startup.as_ref().unwrap().ready_at.is_some());
 
     assert_eq!(rows.memory.unwrap().peak_rss_bytes, 73_400_320);
     assert_eq!(rows.cpu.unwrap().average_percent, 12.4);
@@ -114,12 +117,15 @@ fn maps_a_skipped_result_without_optional_metrics() {
 
     assert_eq!(rows.run.runtime_code, None);
 
-    assert_eq!(rows.build.status_code, "no_build_command");
-    assert_eq!(rows.build.program, None);
-    assert_eq!(rows.build.started_at, None);
+    assert_eq!(rows.build.as_ref().unwrap().status_code, "no_build_command");
+    assert_eq!(rows.build.as_ref().unwrap().program, None);
+    assert_eq!(rows.build.as_ref().unwrap().started_at, None);
 
-    assert_eq!(rows.startup.status_code, "no_start_command");
-    assert_eq!(rows.startup.readiness_type, None);
+    assert_eq!(
+        rows.startup.as_ref().unwrap().status_code,
+        "no_start_command"
+    );
+    assert_eq!(rows.startup.as_ref().unwrap().readiness_type, None);
 
     assert!(rows.memory.is_none());
     assert!(rows.cpu.is_none());
@@ -130,7 +136,7 @@ fn maps_a_skipped_result_without_optional_metrics() {
 fn a_successful_startup_without_ready_at_is_rejected() {
     let mut result = sample::result();
 
-    result.metrics.startup_time.ready_at = None;
+    result.metrics.startup_time.as_mut().unwrap().ready_at = None;
 
     assert!(matches!(
         map_result(&result),
@@ -142,7 +148,7 @@ fn a_successful_startup_without_ready_at_is_rejected() {
 fn a_value_beyond_bigint_is_rejected() {
     let mut result = sample::result();
 
-    result.metrics.artifact_size.source.bytes = u64::MAX;
+    result.metrics.artifact_size.as_mut().unwrap().source.bytes = u64::MAX;
 
     assert!(matches!(
         map_result(&result),

@@ -5,23 +5,19 @@ use std::{
     time::{Duration, Instant},
 };
 
-use axum::http::StatusCode;
-use benchmark_api::{
-    app,
-    features::v1::benchmark::{
-        live::{
-            CancelOutcome, LiveRuns, RunEntry, RunRegistry, RunSlot, ServiceExecutor, event::kind,
-            log::RunStatus,
-        },
-        model::BenchmarkRequest,
+use benchmark_api::features::v1::benchmark::{
+    live::{
+        CancelOutcome, LiveRuns, RunEntry, RunRegistry, RunSlot, ServiceExecutor, event::kind,
+        log::RunStatus,
     },
+    model::BenchmarkRequest,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use super::support::{
-    free_port, kinds, post_to, request_for, require_bun, send, test_env, wait_until,
-    wait_until_slot_free, wait_until_terminal,
+    free_port, kinds, request_for, require_bun, test_env, wait_until, wait_until_slot_free,
+    wait_until_terminal,
 };
 use crate::fake_repository::InMemoryRepository;
 
@@ -157,11 +153,11 @@ async fn cancelling_a_build_stops_it_and_every_process_it_started() {
 
     wait_until_slot_free(live.slot()).await;
 
-    // The build never finished, so it never reported a result, and nothing was stored
+    // The build never finished, so it never reported a result, and the stored run has no build part
     assert!(!accepted.entry.replay(0).events.iter().any(|event| {
         event.kind == kind::STAGE_COMPLETED && event.data["stage"] == json!("build")
     }));
-    assert!(repository.saved_run_ids().is_empty());
+    assert_eq!(repository.saved_run_ids(), vec![accepted.run_id]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -206,7 +202,7 @@ async fn cancelling_while_waiting_for_readiness_stops_the_target_and_its_childre
 
     wait_until_slot_free(live.slot()).await;
 
-    assert!(repository.saved_run_ids().is_empty());
+    assert_eq!(repository.saved_run_ids(), vec![accepted.run_id]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -248,7 +244,7 @@ async fn cancelling_during_the_baseline_stops_the_target_and_its_children() {
 
     wait_until_slot_free(live.slot()).await;
 
-    assert!(repository.saved_run_ids().is_empty());
+    assert_eq!(repository.saved_run_ids(), vec![accepted.run_id]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -317,7 +313,7 @@ async fn cancelling_during_the_workload_stops_the_requests_the_target_and_its_ch
 
     wait_until_slot_free(live.slot()).await;
 
-    assert!(repository.saved_run_ids().is_empty());
+    assert_eq!(repository.saved_run_ids(), vec![accepted.run_id]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -344,7 +340,7 @@ async fn a_cancel_before_anything_started_leaves_nothing_running() {
 
     wait_until_slot_free(live.slot()).await;
 
-    assert!(repository.saved_run_ids().is_empty());
+    assert_eq!(repository.saved_run_ids(), vec![accepted.run_id]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -379,41 +375,4 @@ async fn a_live_run_that_finishes_normally_leaves_no_process_behind() {
     wait_until_slot_free(live.slot()).await;
 
     assert_eq!(repository.saved_run_ids(), vec![accepted.run_id]);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_legacy_run_also_leaves_no_process_behind_and_answers_as_before() {
-    require_bun();
-
-    let marker = "9987.5";
-    let dir = TempDir::new().unwrap();
-    let port = free_port();
-    let repository = Arc::new(InMemoryRepository::default());
-    let live = real_live(repository.clone());
-    let router = app::router_with_live(test_env(), repository.clone(), live.clone());
-
-    let body = json!({
-        "path": dir.path().display().to_string(),
-        "startup": {
-            "command": { "program": "sh", "args": ["-c", serving_shell(port, marker)] },
-            "readiness": {
-                "type": "http", "host": "127.0.0.1", "port": port,
-                "path": "/", "method": "GET", "expected_status": 200, "headers": {}
-            }
-        },
-        "workload": { "method": "GET", "path": "/", "duration_seconds": 1, "concurrency": 2 }
-    })
-    .to_string();
-
-    let (status, response) = send(router, post_to("/api/v1/benchmarks", &body)).await;
-
-    assert_eq!(status, StatusCode::OK, "{response}");
-    assert_eq!(response["message"], json!("Benchmark completed."));
-    assert!(
-        processes_with(marker).is_empty(),
-        "{:?}",
-        processes_with(marker)
-    );
-    assert!(live.slot().active().is_none());
-    assert_eq!(repository.saved_run_ids().len(), 1);
 }

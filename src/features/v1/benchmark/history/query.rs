@@ -1,6 +1,10 @@
 use serde::Deserialize;
 
-use crate::persistence::history::CursorPosition;
+use crate::persistence::{
+    history::CursorPosition,
+    outcome::{STATUS_CANCELLED, STATUS_DONE, STATUS_FAILED, StoredStatus},
+    path::trim_trailing_slashes,
+};
 
 use super::{cursor, error::HistoryError};
 
@@ -14,6 +18,8 @@ pub struct ListQueryParams {
     pub before: Option<String>,
     pub runtime: Option<String>,
     pub target_path: Option<String>,
+    pub status: Option<String>,
+    pub search: Option<String>,
 }
 
 // Validated list parameters
@@ -23,6 +29,8 @@ pub struct ListParams {
     pub before: Option<CursorPosition>,
     pub runtime: Option<String>,
     pub target_path: Option<String>,
+    pub status: Option<StoredStatus>,
+    pub search: Option<String>,
 }
 
 impl ListQueryParams {
@@ -31,7 +39,11 @@ impl ListQueryParams {
             limit: parse_limit(self.limit.as_deref())?,
             before: self.before.as_deref().map(cursor::decode).transpose()?,
             runtime: non_empty("runtime", self.runtime)?,
-            target_path: non_empty("target_path", self.target_path)?,
+            // A pinned target always matches its runs, however the path is spelled
+            target_path: non_empty("target_path", self.target_path)?
+                .map(|path| trim_trailing_slashes(&path).to_string()),
+            status: parse_status(self.status.as_deref())?,
+            search: parse_search(self.search)?,
         })
     }
 }
@@ -61,6 +73,28 @@ fn non_empty(name: &str, value: Option<String>) -> Result<Option<String>, Histor
         Some(value) if value.is_empty() => Err(HistoryError::Validation(format!(
             "{name} must not be empty."
         ))),
+        other => Ok(other),
+    }
+}
+
+fn parse_status(value: Option<&str>) -> Result<Option<StoredStatus>, HistoryError> {
+    value
+        .map(|value| {
+            StoredStatus::from_code(value).ok_or_else(|| {
+                HistoryError::Validation(format!(
+                    "status must be one of {STATUS_DONE}, {STATUS_FAILED}, {STATUS_CANCELLED}."
+                ))
+            })
+        })
+        .transpose()
+}
+
+// Spaces around the text are not part of the search
+fn parse_search(value: Option<String>) -> Result<Option<String>, HistoryError> {
+    match value.map(|value| value.trim().to_string()) {
+        Some(value) if value.is_empty() => Err(HistoryError::Validation(
+            "search must not be empty.".to_string(),
+        )),
         other => Ok(other),
     }
 }

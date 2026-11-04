@@ -69,7 +69,7 @@ Targets are read at startup. Edit the file and restart the server to change them
 - A target without a workload refuses a `workload` override with `400 VALIDATION_ERROR`.
 - An unknown id returns `404 NOT_FOUND`.
 
-The same body works on `POST /api/v1/live-runs` and `POST /api/v1/benchmarks`.
+The same body works on `POST /api/v1/live-runs`.
 
 ## Raw requests
 

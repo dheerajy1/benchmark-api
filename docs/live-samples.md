@@ -1,7 +1,7 @@
 # Live samples (Phase 2)
 
 A run that somebody watches emits one `sample` event every 500 ms while the workload runs.
-A run nobody watches (the legacy endpoint, the existing tests) measures and emits nothing
+A run nobody watches (the existing tests) measures and emits nothing
 extra: `ProgressSink::wants_samples()` is false for the no-op sink, so no gauge, counter or
 tick exists for it.
 

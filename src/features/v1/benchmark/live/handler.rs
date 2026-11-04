@@ -402,8 +402,53 @@ async fn stream_run(socket: &mut WebSocket, entry: &RunEntry, after: u64, config
     }
 }
 
+// The run that is executing now
+#[derive(Debug, Serialize)]
+pub struct ActiveRunView {
+    pub run_id: Uuid,
+    // The stage started last, null before the first stage
+    pub stage: Option<String>,
+    // Milliseconds since the run was accepted, null when the run is not in the registry yet
+    pub elapsed_ms: Option<u64>,
+    // The newest workload progress (requests done or time elapsed), null until the workload
+    // has sampled
+    pub workload_progress: Option<Value>,
+}
+
+// GET /api/v1/live-runs/active, data is null when nothing runs
+async fn active(State(state): State<AppState>) -> ApiSuccess<Option<ActiveRunView>> {
+    let view = state.live.slot().active().map(|active| {
+        let progress = state
+            .live
+            .registry()
+            .get(active.run_id)
+            .map(|entry| entry.progress());
+
+        ActiveRunView {
+            run_id: active.run_id,
+            stage: progress
+                .as_ref()
+                .and_then(|progress| progress.stage.clone()),
+            elapsed_ms: progress.as_ref().map(|progress| progress.elapsed_ms),
+            workload_progress: progress.and_then(|progress| progress.workload),
+        }
+    });
+
+    let message = if view.is_some() {
+        "Active run retrieved."
+    } else {
+        "No run is active."
+    };
+
+    ApiSuccess::ok(message, view)
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route(
+            "/live-runs/active",
+            get(active).fallback(method_not_allowed),
+        )
         .route("/live-runs", post(create).fallback(method_not_allowed))
         .route(
             "/live-runs/{run_id}",

@@ -84,7 +84,7 @@ pub fn sql_state(error: &sqlx::Error) -> String {
 pub async fn insert_bare_run(pool: &PgPool) -> Uuid {
     let id = Uuid::now_v7();
 
-    sqlx::query("INSERT INTO benchmark_runs (id, target_path, created_at) VALUES ($1, $2, now())")
+    sqlx::query("INSERT INTO benchmark_runs (id, target_path, created_at, status) VALUES ($1, $2, now(), 'done')")
         .bind(id)
         .bind("/tmp/bare")
         .execute(pool)

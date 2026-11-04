@@ -13,8 +13,9 @@ use super::{
     error::BenchmarkError,
     live::{Metric, RunContext, RunPermit, Stage},
     metrics::{artifact_size, build_time, memory::MemoryConfig},
-    model::{BenchmarkRequest, BenchmarkResult, Metrics, Target},
-    runtime, validation,
+    model::{BenchmarkRequest, BenchmarkResult},
+    runtime::{self, RuntimeProgress},
+    validation,
     workspace::{
         orchestrator,
         result::{STATUS_SUCCESS as WORKSPACE_SUCCESS, WorkspaceResult},
@@ -38,12 +39,38 @@ pub fn prepare(request: &BenchmarkRequest) -> Result<PathBuf, BenchmarkError> {
     Ok(target)
 }
 
-// The original entry point, unchanged. It does not take part in the execution slot, so
-// the HTTP handlers do not use it: they call `execute` with a permit instead.
+// How a run ended, with the work it had finished by then
+pub struct RunReport {
+    // Every part that finished is filled, the parts of a step that did not are None
+    pub result: BenchmarkResult,
+    pub end: RunEnd,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunEnd {
+    Completed,
+    // Stopped on request
+    Cancelled,
+    // Failed on its own
+    Failed(BenchmarkError),
+}
+
+impl RunReport {
+    // The all or nothing view: the result of a completed run, otherwise the error
+    pub fn into_result(self) -> Result<BenchmarkResult, BenchmarkError> {
+        match self.end {
+            RunEnd::Completed => Ok(self.result),
+            RunEnd::Cancelled => Err(BenchmarkError::Cancelled),
+            RunEnd::Failed(error) => Err(error),
+        }
+    }
+}
+
+// Runs one request without the execution slot and without progress reporting
 pub fn run(request: &BenchmarkRequest, env: &Env) -> Result<BenchmarkResult, BenchmarkError> {
     let target = prepare(request)?;
 
-    run_core(&target, request, env, Uuid::now_v7(), &RunContext::noop())
+    run_report(&target, request, env, Uuid::now_v7(), &RunContext::noop()).into_result()
 }
 
 // Runs a prepared request. The permit proves the caller owns the execution slot.
@@ -53,18 +80,49 @@ pub fn execute(
     env: &Env,
     run_id: Uuid,
     ctx: &RunContext,
-    _permit: &RunPermit,
+    permit: &RunPermit,
 ) -> Result<BenchmarkResult, BenchmarkError> {
-    run_core(target, request, env, run_id, ctx)
+    execute_report(target, request, env, run_id, ctx, permit).into_result()
 }
 
-fn run_core(
+// Same run, keeping what finished when the run fails or is cancelled
+pub fn execute_report(
     target: &Path,
     request: &BenchmarkRequest,
     env: &Env,
     run_id: Uuid,
     ctx: &RunContext,
-) -> Result<BenchmarkResult, BenchmarkError> {
+    _permit: &RunPermit,
+) -> RunReport {
+    run_report(target, request, env, run_id, ctx)
+}
+
+fn run_report(
+    target: &Path,
+    request: &BenchmarkRequest,
+    env: &Env,
+    run_id: Uuid,
+    ctx: &RunContext,
+) -> RunReport {
+    let mut result = BenchmarkResult::empty(run_id, target.display().to_string());
+
+    let end = match fill(target, request, env, ctx, &mut result) {
+        Ok(()) => RunEnd::Completed,
+        Err(BenchmarkError::Cancelled) => RunEnd::Cancelled,
+        Err(error) => RunEnd::Failed(error),
+    };
+
+    RunReport { result, end }
+}
+
+// Runs the steps in order and puts each result into `result` as soon as its step is complete
+fn fill(
+    target: &Path,
+    request: &BenchmarkRequest,
+    env: &Env,
+    ctx: &RunContext,
+    result: &mut BenchmarkResult,
+) -> Result<(), BenchmarkError> {
     // A cancel request is looked at before every step and inside each long one
     ctx.check_cancelled()?;
 
@@ -72,6 +130,9 @@ fn run_core(
     let discovery = discovery::discover(target)?;
     ctx.measurement(Metric::Discovery, &discovery);
     ctx.stage_completed(Stage::Discovery, STATUS_SUCCESS, None);
+    result.discovery = discovery;
+
+    let runtime_code = result.discovery.runtime.clone();
 
     ctx.check_cancelled()?;
 
@@ -79,48 +140,48 @@ fn run_core(
     let artifact_size = artifact_size::measure(target)?;
     ctx.measurement(Metric::ArtifactSize, &artifact_size);
     ctx.stage_completed(Stage::ArtifactSize, STATUS_SUCCESS, None);
+    result.metrics.artifact_size = Some(artifact_size);
 
     ctx.check_cancelled()?;
 
     ctx.stage_started(Stage::Build);
     let build_time =
-        build_time::measure_cancellable(target, discovery.runtime.as_deref(), ctx.control())?;
+        build_time::measure_cancellable(target, runtime_code.as_deref(), ctx.control())?;
     ctx.measurement(Metric::BuildTime, &build_time);
     ctx.stage_completed(Stage::Build, &build_time.status, build_time.duration_ms);
+    result.metrics.build_time = Some(build_time);
 
     ctx.check_cancelled()?;
 
-    let runtime_metrics =
-        runtime::run_observed(target, discovery.runtime.as_deref(), request, env, ctx)?;
+    let mut progress = RuntimeProgress::default();
+
+    let outcome = runtime::run_observed_into(
+        target,
+        runtime_code.as_deref(),
+        request,
+        env,
+        ctx,
+        &mut progress,
+    );
+
+    // What finished is kept, whether the steps ended well or not
+    progress.apply(&mut result.metrics);
+    outcome?;
 
     // The main project has finished and shut down, the workspaces follow one at a time
-    let workspaces = run_workspaces(target, request, ctx)?;
+    run_workspaces(target, request, ctx, &mut result.metrics.workspaces)?;
 
-    Ok(BenchmarkResult {
-        run_id,
-        target: Target {
-            path: target.display().to_string(),
-        },
-        discovery,
-        metrics: Metrics {
-            artifact_size,
-            build_time,
-            startup_time: runtime_metrics.startup_time,
-            memory: runtime_metrics.memory,
-            cpu: runtime_metrics.cpu,
-            http_latency: runtime_metrics.http_latency,
-            workspaces,
-        },
-    })
+    Ok(())
 }
 
 fn run_workspaces(
     target: &Path,
     request: &BenchmarkRequest,
     ctx: &RunContext,
-) -> Result<Vec<WorkspaceResult>, BenchmarkError> {
+    results: &mut Vec<WorkspaceResult>,
+) -> Result<(), BenchmarkError> {
     if request.workspaces.is_empty() {
-        return Ok(Vec::new());
+        return Ok(());
     }
 
     ctx.check_cancelled()?;
@@ -128,12 +189,13 @@ fn run_workspaces(
 
     let started = Instant::now();
 
-    let results = orchestrator::run_all(
+    orchestrator::run_all_into(
         target,
         &request.workspaces,
         &DockerCli,
         &MemoryConfig::default(),
         ctx,
+        results,
     )?;
 
     let status = if results
@@ -151,7 +213,7 @@ fn run_workspaces(
         u64::try_from(started.elapsed().as_millis()).ok(),
     );
 
-    Ok(results)
+    Ok(())
 }
 
 fn prepare_target(path: &Path) -> Result<PathBuf, BenchmarkError> {

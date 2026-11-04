@@ -31,8 +31,8 @@ pub struct StoredArtifactSize {
 pub struct StoredBenchmark {
     pub run: RunRow,
     pub artifact_sizes: Vec<StoredArtifactSize>,
-    pub build: BuildRow,
-    pub startup: StartupRow,
+    pub build: Option<BuildRow>,
+    pub startup: Option<StartupRow>,
     pub memory: Option<MemoryRow>,
     pub cpu: Option<CpuRow>,
     pub http_latency: Option<HttpLatencyRow>,
@@ -53,8 +53,8 @@ pub fn to_result(stored: StoredBenchmark) -> Result<BenchmarkResult, Persistence
         },
         metrics: Metrics {
             artifact_size: rebuild_artifact_size(&stored.artifact_sizes)?,
-            build_time: rebuild_build(stored.build)?,
-            startup_time: rebuild_startup(stored.startup)?,
+            build_time: stored.build.map(rebuild_build).transpose()?,
+            startup_time: stored.startup.map(rebuild_startup).transpose()?,
             memory: stored.memory.map(rebuild_memory).transpose()?,
             cpu: stored.cpu.map(rebuild_cpu),
             http_latency: stored.http_latency.map(rebuild_http_latency).transpose()?,
@@ -89,12 +89,19 @@ fn command(program: Option<String>, args: Option<Vec<String>>) -> Option<BuildCo
     })
 }
 
-fn rebuild_artifact_size(sizes: &[StoredArtifactSize]) -> Result<ArtifactSize, PersistenceError> {
-    Ok(ArtifactSize {
+// No rows means the run stopped before the size was measured, that is null and never zero
+fn rebuild_artifact_size(
+    sizes: &[StoredArtifactSize],
+) -> Result<Option<ArtifactSize>, PersistenceError> {
+    if sizes.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(ArtifactSize {
         source: rebuild_category(sizes, ARTIFACT_SOURCE)?,
         build: rebuild_category(sizes, ARTIFACT_BUILD)?,
         excluded: rebuild_category(sizes, ARTIFACT_EXCLUDED)?,
-    })
+    }))
 }
 
 fn rebuild_category(

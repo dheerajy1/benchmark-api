@@ -84,8 +84,24 @@ pub fn run_all(
     memory: &MemoryConfig,
     ctx: &RunContext,
 ) -> Result<Vec<WorkspaceResult>, Stop> {
-    let control = ctx.control();
     let mut results = Vec::new();
+
+    run_all_into(target, workspaces, docker, memory, ctx, &mut results)?;
+
+    Ok(results)
+}
+
+// Same run, but every mode that finished stays in `results` even when the run stops with an
+// error. A mode that was cut short is not added, it has nothing complete to report.
+pub fn run_all_into(
+    target: &Path,
+    workspaces: &[WorkspaceRequest],
+    docker: &dyn Docker,
+    memory: &MemoryConfig,
+    ctx: &RunContext,
+    results: &mut Vec<WorkspaceResult>,
+) -> Result<(), Stop> {
+    let control = ctx.control();
 
     for workspace in workspaces {
         if control.is_cancel_requested() {
@@ -141,7 +157,7 @@ pub fn run_all(
         }
     }
 
-    Ok(results)
+    Ok(())
 }
 
 struct Prepared {

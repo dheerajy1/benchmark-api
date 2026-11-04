@@ -15,6 +15,6 @@ pub use error::SubmitError;
 pub use gauges::{LiveGauges, SAMPLE_INTERVAL};
 pub use registry::{CancelOutcome, RunEntry, RunRegistry};
 pub use runs::{Accepted, LiveRuns, RunExecutor, ServiceExecutor};
-pub use sink::{Metric, ProgressSink, RunContext, Stage, skip};
+pub use sink::{Metric, ProgressSink, RunContext, Stage, StageRecorder, skip};
 pub use slot::{ActiveRun, RunKind, RunPermit, RunSlot};
 pub use sockets::{SocketLimits, SocketPermit, WsConfig};

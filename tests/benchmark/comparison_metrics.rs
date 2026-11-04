@@ -9,10 +9,7 @@ use super::comparison_sample::{result, skipped};
 use benchmark_api::features::v1::benchmark::model::BenchmarkResult;
 
 fn stored(result: BenchmarkResult) -> StoredRun {
-    StoredRun {
-        created_at: run_created_at(result.run_id).unwrap(),
-        result,
-    }
+    StoredRun::new(run_created_at(result.run_id).unwrap(), result)
 }
 
 fn run() -> BenchmarkResult {
@@ -80,7 +77,7 @@ fn the_order_of_the_runs_matters() {
     let first = run();
     let mut second = run();
 
-    second.metrics.build_time.duration_ms = Some(1500);
+    second.metrics.build_time.as_mut().unwrap().duration_ms = Some(1500);
 
     let forward = compared(first.clone(), second.clone());
     let backward = compared(second, first);
@@ -103,7 +100,7 @@ fn the_order_of_the_runs_matters() {
 fn build_time_is_compared() {
     let mut comparison = run();
 
-    comparison.metrics.build_time.duration_ms = Some(750);
+    comparison.metrics.build_time.as_mut().unwrap().duration_ms = Some(750);
 
     let value = compared(run(), comparison);
     let build = &value["metrics"]["build_time"];
@@ -121,7 +118,12 @@ fn build_time_is_compared() {
 fn startup_time_is_compared() {
     let mut comparison = run();
 
-    comparison.metrics.startup_time.duration_ms = Some(600);
+    comparison
+        .metrics
+        .startup_time
+        .as_mut()
+        .unwrap()
+        .duration_ms = Some(600);
 
     let value = compared(run(), comparison);
     let startup = &value["metrics"]["startup_time"]["duration_ms"];
@@ -251,8 +253,20 @@ fn http_latency_percentiles_are_compared_and_lower_is_better() {
 fn artifact_source_is_compared() {
     let mut comparison = run();
 
-    comparison.metrics.artifact_size.source.bytes = 1500;
-    comparison.metrics.artifact_size.source.file_count = 5;
+    comparison
+        .metrics
+        .artifact_size
+        .as_mut()
+        .unwrap()
+        .source
+        .bytes = 1500;
+    comparison
+        .metrics
+        .artifact_size
+        .as_mut()
+        .unwrap()
+        .source
+        .file_count = 5;
 
     let value = compared(run(), comparison);
     let source = &value["metrics"]["artifact_size"]["source"];
@@ -269,8 +283,20 @@ fn artifact_source_is_compared() {
 fn artifact_build_is_compared() {
     let mut comparison = run();
 
-    comparison.metrics.artifact_size.build.bytes = 1000;
-    comparison.metrics.artifact_size.build.file_count = 30;
+    comparison
+        .metrics
+        .artifact_size
+        .as_mut()
+        .unwrap()
+        .build
+        .bytes = 1000;
+    comparison
+        .metrics
+        .artifact_size
+        .as_mut()
+        .unwrap()
+        .build
+        .file_count = 30;
 
     let value = compared(run(), comparison);
     let build = &value["metrics"]["artifact_size"]["build"];
@@ -285,8 +311,20 @@ fn artifact_build_is_compared() {
 fn artifact_excluded_is_compared() {
     let mut comparison = run();
 
-    comparison.metrics.artifact_size.excluded.bytes = 6000;
-    comparison.metrics.artifact_size.excluded.file_count = 30;
+    comparison
+        .metrics
+        .artifact_size
+        .as_mut()
+        .unwrap()
+        .excluded
+        .bytes = 6000;
+    comparison
+        .metrics
+        .artifact_size
+        .as_mut()
+        .unwrap()
+        .excluded
+        .file_count = 30;
 
     let value = compared(run(), comparison);
     let excluded = &value["metrics"]["artifact_size"]["excluded"];
@@ -336,8 +374,20 @@ fn a_zero_baseline_has_no_percentage_change() {
     baseline.metrics.cpu.as_mut().unwrap().baseline_percent = 0.0;
     comparison.metrics.cpu.as_mut().unwrap().baseline_percent = 5.0;
 
-    baseline.metrics.artifact_size.excluded.file_count = 0;
-    comparison.metrics.artifact_size.excluded.file_count = 4;
+    baseline
+        .metrics
+        .artifact_size
+        .as_mut()
+        .unwrap()
+        .excluded
+        .file_count = 0;
+    comparison
+        .metrics
+        .artifact_size
+        .as_mut()
+        .unwrap()
+        .excluded
+        .file_count = 4;
 
     let value = compared(baseline, comparison);
 
@@ -368,10 +418,15 @@ fn percentage_changes_are_signed_and_rounded_to_two_decimals() {
 fn a_failed_build_or_startup_is_not_a_comparable_duration() {
     let mut comparison = run();
 
-    comparison.metrics.build_time.status = "failed".to_string();
-    comparison.metrics.build_time.duration_ms = Some(123);
-    comparison.metrics.startup_time.status = "timeout".to_string();
-    comparison.metrics.startup_time.duration_ms = Some(30_000);
+    comparison.metrics.build_time.as_mut().unwrap().status = "failed".to_string();
+    comparison.metrics.build_time.as_mut().unwrap().duration_ms = Some(123);
+    comparison.metrics.startup_time.as_mut().unwrap().status = "timeout".to_string();
+    comparison
+        .metrics
+        .startup_time
+        .as_mut()
+        .unwrap()
+        .duration_ms = Some(30_000);
 
     let value = compared(run(), comparison);
     let build = &value["metrics"]["build_time"];

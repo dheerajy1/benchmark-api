@@ -7,7 +7,7 @@ use super::{
     lookup::{Lookup, lookup_id},
     rows::{
         ArtifactSizeRow, BenchmarkRows, BuildRow, CpuRow, HttpLatencyRow, MemoryRow, RunRow,
-        StartupRow, WorkspaceRow,
+        StageRow, StartupRow, WorkspaceRow,
     },
 };
 
@@ -24,8 +24,13 @@ pub async fn insert_all(
         insert_artifact_size(connection, run_id, row).await?;
     }
 
-    insert_build(connection, run_id, &rows.build).await?;
-    insert_startup(connection, run_id, &rows.startup).await?;
+    if let Some(build) = &rows.build {
+        insert_build(connection, run_id, build).await?;
+    }
+
+    if let Some(startup) = &rows.startup {
+        insert_startup(connection, run_id, startup).await?;
+    }
 
     if let Some(memory) = &rows.memory {
         insert_memory(connection, run_id, memory).await?;
@@ -43,6 +48,56 @@ pub async fn insert_all(
         insert_workspace(connection, run_id, workspace).await?;
     }
 
+    for stage in &rows.stages {
+        insert_stage(connection, run_id, stage.position, stage).await?;
+    }
+
+    Ok(())
+}
+
+// The saving stage is the time the writes took up to here, it can only be known now. A run
+// that already carries a saving row keeps it.
+pub async fn insert_saving_stage(
+    connection: &mut PgConnection,
+    rows: &BenchmarkRows,
+    elapsed: std::time::Duration,
+) -> Result<(), PersistenceError> {
+    if rows.stages.iter().any(|stage| stage.stage == "saving") {
+        return Ok(());
+    }
+
+    let row = StageRow {
+        position: i32::try_from(rows.stages.len()).map_err(|_| {
+            PersistenceError::InvalidResult("too many stages in one run".to_string())
+        })?,
+        stage: "saving".to_string(),
+        status: "success".to_string(),
+        duration_ms: i64::try_from(elapsed.as_millis()).ok(),
+    };
+
+    insert_stage(connection, rows.run.id, row.position, &row).await
+}
+
+async fn insert_stage(
+    connection: &mut PgConnection,
+    run_id: Uuid,
+    position: i32,
+    row: &StageRow,
+) -> Result<(), PersistenceError> {
+    sqlx::query(
+        "INSERT INTO benchmark_run_stages \
+         (id, benchmark_run_id, position, stage, status, duration_ms) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(run_id)
+    .bind(position)
+    .bind(&row.stage)
+    .bind(&row.status)
+    .bind(row.duration_ms)
+    .execute(&mut *connection)
+    .await?;
+
     Ok(())
 }
 
@@ -53,13 +108,17 @@ async fn insert_run(connection: &mut PgConnection, row: &RunRow) -> Result<(), P
     };
 
     sqlx::query(
-        "INSERT INTO benchmark_runs (id, target_path, runtime_id, created_at) \
-         VALUES ($1, $2, $3, $4)",
+        "INSERT INTO benchmark_runs \
+         (id, target_path, runtime_id, created_at, status, stopped_stage, failure_message) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(row.id)
     .bind(&row.target_path)
     .bind(runtime_id)
     .bind(row.created_at)
+    .bind(row.status.as_str())
+    .bind(row.stopped_stage.as_deref())
+    .bind(row.failure_message.as_deref())
     .execute(&mut *connection)
     .await?;
 

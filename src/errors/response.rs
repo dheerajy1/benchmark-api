@@ -14,6 +14,9 @@ pub struct ErrorBody {
     pub code: &'static str,
     pub message: String,
     pub error: String,
+    // The id of the request, also in the x-request-id header. Absent only outside a request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 // { success: true, httpCode, message, data }

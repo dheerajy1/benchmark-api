@@ -6,10 +6,11 @@ use crate::{
     persistence::error::PersistenceError,
 };
 
-// Failures of the overview endpoint, mapped to the global API error afterwards.
-// The endpoint has no parameters, so the only failure is storage.
+// Failures of the overview endpoint, mapped to the global API error afterwards
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OverviewError {
+    // The query string was rejected
+    Validation(String),
     // The database failed or holds data the API cannot represent
     Persistence(PersistenceError),
 }
@@ -17,6 +18,7 @@ pub enum OverviewError {
 impl fmt::Display for OverviewError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            OverviewError::Validation(message) => write!(formatter, "{message}"),
             OverviewError::Persistence(error) => {
                 write!(formatter, "Failed to read the benchmark overview: {error}")
             }
@@ -47,6 +49,7 @@ impl From<HistoryError> for OverviewError {
 impl From<OverviewError> for ApiError {
     fn from(error: OverviewError) -> Self {
         let code = match &error {
+            OverviewError::Validation(_) => ErrorCode::ValidationError,
             OverviewError::Persistence(_) => ErrorCode::InternalServerError,
         };
 

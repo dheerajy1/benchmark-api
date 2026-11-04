@@ -14,10 +14,7 @@ use uuid::Uuid;
 use super::comparison_sample::result;
 
 fn stored(result: BenchmarkResult) -> StoredRun {
-    StoredRun {
-        created_at: run_created_at(result.run_id).unwrap(),
-        result,
-    }
+    StoredRun::new(run_created_at(result.run_id).unwrap(), result)
 }
 
 fn reading(bytes: u64) -> MemoryReading {

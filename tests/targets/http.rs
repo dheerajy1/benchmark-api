@@ -169,26 +169,6 @@ async fn override_rules_are_enforced() {
 }
 
 #[tokio::test]
-async fn the_legacy_endpoint_applies_the_same_switch_before_running() {
-    let dir = tempdir().unwrap();
-    let raw = json!({ "path": dir.path().display().to_string() }).to_string();
-
-    let (app, executor) = router(policy(false, dir.path()));
-    let (status, value) = send(app, post_json("/api/v1/benchmarks", &raw)).await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_eq!(value["code"], "FORBIDDEN");
-    assert!(executor.seen.lock().unwrap().is_empty());
-
-    let (app, _) = router(policy(false, dir.path()));
-    let (status, _) = send(
-        app,
-        post_json("/api/v1/benchmarks", r#"{"target_id":"missing"}"#),
-    )
-    .await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
 async fn saved_targets_are_listed_with_names_only() {
     let dir = tempdir().unwrap();
     let (app, _) = router(policy(false, dir.path()));

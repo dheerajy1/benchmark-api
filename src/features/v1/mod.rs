@@ -1,5 +1,6 @@
 pub mod benchmark;
 pub mod comparison;
+pub mod health;
 pub mod overview;
 pub mod targets;
 
@@ -12,6 +13,7 @@ pub fn router() -> Router<AppState> {
         benchmark::handler::router()
             .merge(benchmark::live::handler::router())
             .merge(comparison::handler::router())
+            .merge(health::handler::router())
             .merge(overview::handler::router())
             .merge(targets::handler::router()),
     )

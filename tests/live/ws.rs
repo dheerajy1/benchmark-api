@@ -305,7 +305,7 @@ fn origins_are_checked_against_the_shared_allow_list() {
     for refused in [
         "https://evil.example.com",
         "null",
-        "http://localhost:5003",
+        "http://localhost:5004",
         "https://trycloudflare.com.evil.example.com",
     ] {
         assert_eq!(
@@ -318,6 +318,8 @@ fn origins_are_checked_against_the_shared_allow_list() {
     for allowed in [
         "http://localhost:5002",
         "http://127.0.0.1:8092",
+        "http://localhost:5003",
+        "http://127.0.0.1:8093",
         "https://some-name.trycloudflare.com",
         "https://abc-5003.usw3.devtunnels.ms",
     ] {

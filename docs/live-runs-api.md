@@ -4,14 +4,14 @@ A live run executes in the background. Its progress is stored as ordered events,
 client follows it over HTTP or a WebSocket. The run never depends on a client: it keeps
 going and is stored whether anybody watches, disconnects or reconnects.
 
-Only one benchmark runs at a time, shared with `POST /api/v1/benchmarks`
-(see `execution-guard.md`).
+Only one benchmark runs at a time (see `execution-guard.md`). `POST /api/v1/live-runs` is the only way to start a
+benchmark, the old blocking `POST /api/v1/benchmarks` was removed.
 
 ## Endpoints
 
 ### `POST /api/v1/live-runs`
 
-Same request body as `POST /api/v1/benchmarks`. Validation and the path check happen first.
+The request body is described in [api.md](api.md#starting-a-run). Validation and the path check happen first.
 
 - `202`: the run exists and is registered.
 
@@ -24,9 +24,14 @@ Same request body as `POST /api/v1/benchmarks`. Validation and the path check ha
             "capabilities": { "cancel": true } } }
 ```
 
-- `400` for an invalid body or path, same errors as the legacy endpoint.
-- `409 CONFLICT` while any benchmark runs. `error` is the id of the active live run, or
-  "A benchmark is already running." when a legacy run holds the slot.
+- `400` for an invalid body or path.
+- `409 CONFLICT` while a benchmark runs. `error` is the id of the active live run.
+
+`run_id` is also the id of the stored run: every run that ends, completed, failed or cancelled, is stored under it.
+
+### `GET /api/v1/live-runs/active`
+
+The run that executes now, or `data: null` when nothing runs. See [api.md](api.md#get-live-runsactive).
 
 `cancel_token` is shown only here. See `live-run-cancellation.md` for cancelling.
 
@@ -42,7 +47,7 @@ The JSON replay, the fallback when a WebSocket is not possible. `after` defaults
 
 `status` is `running`, `completed`, `failed` or `cancelled`. `404` for a run that is not in memory
 (unknown, or finished and expired): a finished and stored run is read with
-`GET /api/v1/benchmarks/{run_id}`. `400` for a malformed id, `400 VALIDATION_ERROR` for a
+`GET /api/v1/benchmarks/{run_id}`, the stored run id is the live run id. `400` for a malformed id, `400 VALIDATION_ERROR` for a
 malformed `after`.
 
 ### `GET /api/v1/live-runs/{run_id}/ws?after=<seq>`
@@ -65,7 +70,9 @@ First, always:
 Then every stored event with `seq > after`, in order, and then new events as they happen.
 Each event has the envelope `{ v, run_id, seq, t_ms, at, type, data }`; the events and their
 data are the contract of Phase 1 and 2 (`run.accepted`, `stage.*`, `measurement.available`,
-`baseline.measured`, `sample`, `workspace.phase`, `workspace.sample`, `run.completed`, `run.failed`).
+`baseline.measured`, `sample`, `workspace.phase`, `workspace.sample`, `run.completed`, `run.failed`, `run.cancelling`, `run.cancelled`).
+
+The three terminal events carry `persisted`: `true` once the run is stored (always for `run.completed`), `false` only when storing failed, and then `persist_error` says why. `run.failed` and `run.cancelled` also carry the `stage` the run stopped in, and the stored run is read with `GET /api/v1/benchmarks/{run_id}`.
 
 When the run has workspaces, `run.accepted` carries `plan.workspaces` (their number), the `workspaces` stage runs after `workload`, `workspace.phase` reports `{workspace, mode, phase, status}` with `phase` one of `started`, `sampling`, `finished` (`status` only with `finished`), and `workspace.sample` carries `{workspace, mode, elapsed_ms, memory, cpu}` about every 500 ms while a mode is sampled, with the same `memory` and `cpu` shapes as `sample`. Like `sample`, `workspace.sample` events may be evicted from the log.
 
@@ -113,11 +120,10 @@ the same allow-list as CORS (`src/origin.rs`):
 | more than one | `403` |
 
 The origin is not authentication: anybody who can reach the API can start a run, as with
-the legacy endpoint. Known limits of the allow-list, unchanged: it accepts any
-`*.trycloudflare.com` and `*.usw3.devtunnels.ms` origin, so any tunnel of anybody passes, and it
-lists the API's own local ports (5002 in development, 8092 in production) and not the dashboard's
-(5003 in development, 8093 in production), so a dashboard opened from its own local address would be
-refused. Access through the `*.trycloudflare.com` and `*.usw3.devtunnels.ms` tunnels is what passes.
+every other request. Known limit of the allow-list: it accepts any
+`*.trycloudflare.com` and `*.usw3.devtunnels.ms` origin, so any tunnel of anybody passes. It lists the
+API's own local ports (5002 in development, 8092 in production) and the dashboard's (5003 in development,
+8093 in production), on `localhost` and `127.0.0.1`.
 
 ## Heartbeat and limits
 

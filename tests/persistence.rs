@@ -4,12 +4,18 @@ mod persistence {
     pub mod configuration_http;
     pub mod configuration_secrets;
     pub mod constraints;
+    pub mod detail;
     pub mod history;
+    pub mod history_filters;
     pub mod mapping;
     pub mod migrations;
     pub mod overview;
+    pub mod projects;
     pub mod repository;
+    pub mod run_status;
     pub mod sample;
+    pub mod soft_delete;
+    pub mod stage_runs;
     pub mod support;
     pub mod workspace;
 }

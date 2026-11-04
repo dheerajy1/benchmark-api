@@ -10,6 +10,7 @@ pub enum ErrorCode {
     MethodNotAllowed,
     Conflict,
     InternalServerError,
+    ServiceUnavailable,
 }
 
 impl ErrorCode {
@@ -23,6 +24,7 @@ impl ErrorCode {
             ErrorCode::MethodNotAllowed => "METHOD_NOT_ALLOWED",
             ErrorCode::Conflict => "CONFLICT",
             ErrorCode::InternalServerError => "INTERNAL_SERVER_ERROR",
+            ErrorCode::ServiceUnavailable => "SERVICE_UNAVAILABLE",
         }
     }
 
@@ -34,6 +36,7 @@ impl ErrorCode {
             ErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
             ErrorCode::Conflict => StatusCode::CONFLICT,
             ErrorCode::InternalServerError => StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 
@@ -47,6 +50,7 @@ impl ErrorCode {
             ErrorCode::MethodNotAllowed => "This method is not allowed for the requested resource.",
             ErrorCode::Conflict => "Another benchmark is already running.",
             ErrorCode::InternalServerError => "Something went wrong on the server.",
+            ErrorCode::ServiceUnavailable => "The service is not ready to answer.",
         }
     }
 }

@@ -35,18 +35,19 @@ pub struct ComparisonMetrics {
     pub workspaces: Vec<WorkspaceComparison>,
 }
 
-// The statuses explain why a side is null, for example no_build_command
+// The statuses explain why a side is null, for example no_build_command. A status is null
+// when that run stopped before the step finished.
 #[derive(Serialize)]
 pub struct BuildTimeComparison {
-    pub baseline_status: String,
-    pub comparison_status: String,
+    pub baseline_status: Option<String>,
+    pub comparison_status: Option<String>,
     pub duration_ms: IntegerMetric,
 }
 
 #[derive(Serialize)]
 pub struct StartupTimeComparison {
-    pub baseline_status: String,
-    pub comparison_status: String,
+    pub baseline_status: Option<String>,
+    pub comparison_status: Option<String>,
     pub duration_ms: IntegerMetric,
 }
 

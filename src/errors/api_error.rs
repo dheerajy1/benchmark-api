@@ -46,6 +46,7 @@ impl IntoResponse for ApiError {
             code: self.code.as_str(),
             message: self.message,
             error: self.error,
+            request_id: crate::request_id::current(),
         };
 
         (status, Json(body)).into_response()

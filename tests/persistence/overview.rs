@@ -2,7 +2,7 @@ use super::sample::configuration;
 use benchmark_api::{
     features::v1::benchmark::model::BenchmarkResult,
     persistence::{
-        history::{SummaryQuery, TrendRow},
+        history::{SummaryQuery, TrendQuery, TrendRow},
         postgres::repository::PgBenchmarkRepository,
         repository::BenchmarkRepository,
     },
@@ -55,7 +55,13 @@ async fn an_empty_database_has_no_runs_and_no_trends() {
     let repository = PgBenchmarkRepository::new(database.pool.clone());
 
     assert_eq!(repository.count_runs().await.unwrap(), 0);
-    assert!(repository.list_trends(30).await.unwrap().is_empty());
+    assert!(
+        repository
+            .list_trends(&TrendQuery::all(30))
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     database.teardown().await;
 }
@@ -97,7 +103,7 @@ async fn trends_are_newest_first_and_limited() {
             .unwrap();
     }
 
-    let rows = repository.list_trends(3).await.unwrap();
+    let rows = repository.list_trends(&TrendQuery::all(3)).await.unwrap();
 
     assert_eq!(ids(&rows), vec![id(5), id(4), id(3)]);
 
@@ -120,7 +126,7 @@ async fn runs_with_the_same_created_at_are_ordered_by_id() {
         repository.save(&result, &configuration()).await.unwrap();
     }
 
-    let rows = repository.list_trends(30).await.unwrap();
+    let rows = repository.list_trends(&TrendQuery::all(30)).await.unwrap();
 
     assert_eq!(
         ids(&rows),
@@ -140,7 +146,7 @@ async fn a_complete_successful_run_keeps_every_stored_value() {
 
     repository.save(&run(1), &configuration()).await.unwrap();
 
-    let rows = repository.list_trends(30).await.unwrap();
+    let rows = repository.list_trends(&TrendQuery::all(30)).await.unwrap();
 
     assert_eq!(rows.len(), 1);
 
@@ -167,19 +173,19 @@ async fn a_build_that_did_not_succeed_has_no_trend_duration() {
 
     let mut failed = run(1);
 
-    failed.metrics.build_time.status = "failed".to_string();
-    failed.metrics.build_time.exit_code = Some(1);
+    failed.metrics.build_time.as_mut().unwrap().status = "failed".to_string();
+    failed.metrics.build_time.as_mut().unwrap().exit_code = Some(1);
 
     let mut timed_out = run(2);
 
-    timed_out.metrics.build_time.status = "timeout".to_string();
-    timed_out.metrics.build_time.exit_code = None;
+    timed_out.metrics.build_time.as_mut().unwrap().status = "timeout".to_string();
+    timed_out.metrics.build_time.as_mut().unwrap().exit_code = None;
 
     repository.save(&failed, &configuration()).await.unwrap();
     repository.save(&timed_out, &configuration()).await.unwrap();
     repository.save(&run(3), &configuration()).await.unwrap();
 
-    let rows = repository.list_trends(30).await.unwrap();
+    let rows = repository.list_trends(&TrendQuery::all(30)).await.unwrap();
 
     assert_eq!(row_of(&rows, 1).build_time_ms, None);
     assert_eq!(row_of(&rows, 2).build_time_ms, None);
@@ -202,16 +208,16 @@ async fn a_startup_that_did_not_succeed_has_no_trend_duration() {
     for (number, status) in [(1, "failed"), (2, "timeout"), (3, "unhealthy")] {
         let mut result = run(number);
 
-        result.metrics.startup_time.status = status.to_string();
-        result.metrics.startup_time.ready_at = None;
-        result.metrics.startup_time.exit_code = None;
+        result.metrics.startup_time.as_mut().unwrap().status = status.to_string();
+        result.metrics.startup_time.as_mut().unwrap().ready_at = None;
+        result.metrics.startup_time.as_mut().unwrap().exit_code = None;
 
         repository.save(&result, &configuration()).await.unwrap();
     }
 
     repository.save(&run(4), &configuration()).await.unwrap();
 
-    let rows = repository.list_trends(30).await.unwrap();
+    let rows = repository.list_trends(&TrendQuery::all(30)).await.unwrap();
 
     for number in 1..=3 {
         assert_eq!(row_of(&rows, number).startup_time_ms, None, "run {number}");
@@ -239,7 +245,7 @@ async fn a_partial_workload_has_no_trend_http_metrics() {
 
     repository.save(&result, &configuration()).await.unwrap();
 
-    let rows = repository.list_trends(30).await.unwrap();
+    let rows = repository.list_trends(&TrendQuery::all(30)).await.unwrap();
     let row = row_of(&rows, 1);
 
     assert_eq!(row.requests_per_second, None);
@@ -276,7 +282,7 @@ async fn zero_observed_requests_are_null_and_not_a_zero_throughput() {
 
     repository.save(&result, &configuration()).await.unwrap();
 
-    let rows = repository.list_trends(30).await.unwrap();
+    let rows = repository.list_trends(&TrendQuery::all(30)).await.unwrap();
     let row = row_of(&rows, 1);
 
     assert_eq!(row.requests_per_second, None);
@@ -301,7 +307,7 @@ async fn a_run_without_a_workload_has_null_memory_cpu_and_http_metrics() {
 
     repository.save(&result, &configuration()).await.unwrap();
 
-    let rows = repository.list_trends(30).await.unwrap();
+    let rows = repository.list_trends(&TrendQuery::all(30)).await.unwrap();
     let row = row_of(&rows, 1);
 
     assert_eq!(row.build_time_ms, Some(1842));
@@ -328,7 +334,7 @@ async fn a_run_where_every_step_was_skipped_has_six_null_metrics() {
 
     repository.save(&result, &configuration()).await.unwrap();
 
-    let rows = repository.list_trends(30).await.unwrap();
+    let rows = repository.list_trends(&TrendQuery::all(30)).await.unwrap();
 
     assert_eq!(
         rows,
@@ -357,7 +363,7 @@ async fn a_measured_zero_stays_zero() {
 
     let mut result = run(1);
 
-    result.metrics.build_time.duration_ms = Some(0);
+    result.metrics.build_time.as_mut().unwrap().duration_ms = Some(0);
 
     let memory = result.metrics.memory.as_mut().unwrap();
 
@@ -375,7 +381,7 @@ async fn a_measured_zero_stays_zero() {
 
     repository.save(&result, &configuration()).await.unwrap();
 
-    let rows = repository.list_trends(30).await.unwrap();
+    let rows = repository.list_trends(&TrendQuery::all(30)).await.unwrap();
     let row = row_of(&rows, 1);
 
     assert_eq!(row.build_time_ms, Some(0));
@@ -396,8 +402,8 @@ async fn the_history_summary_keeps_the_raw_values_the_trend_nulls() {
 
     let mut result = run(1);
 
-    result.metrics.build_time.status = "failed".to_string();
-    result.metrics.build_time.exit_code = Some(1);
+    result.metrics.build_time.as_mut().unwrap().status = "failed".to_string();
+    result.metrics.build_time.as_mut().unwrap().exit_code = Some(1);
     result.metrics.http_latency.as_mut().unwrap().status = "target_exited".to_string();
 
     repository.save(&result, &configuration()).await.unwrap();
@@ -407,10 +413,12 @@ async fn the_history_summary_keeps_the_raw_values_the_trend_nulls() {
         after: None,
         runtime_code: None,
         target_path: None,
+        status: None,
+        search: None,
     };
 
     let summaries = repository.list_summaries(&query).await.unwrap();
-    let trends = repository.list_trends(30).await.unwrap();
+    let trends = repository.list_trends(&TrendQuery::all(30)).await.unwrap();
 
     // The frozen history summary is unchanged and still reads the stored values
     assert_eq!(summaries[0].build_time_ms, Some(1842));

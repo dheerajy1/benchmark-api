@@ -1,10 +1,13 @@
-use std::sync::Arc;
+use std::{
+    sync::{Arc, Mutex, MutexGuard},
+    time::Instant,
+};
 
 use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::{control::RunControl, event::kind, registry::RunEntry};
-use crate::features::v1::benchmark::error::BenchmarkError;
+use crate::{features::v1::benchmark::error::BenchmarkError, persistence::outcome::StageRecord};
 
 // The steps of a run, in the order they happen
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,7 +77,7 @@ pub trait ProgressSink: Send + Sync {
     }
 }
 
-// For runs nobody watches, the legacy endpoint and the existing tests
+// For runs nobody watches and the existing tests
 pub struct NoopSink;
 
 impl ProgressSink for NoopSink {
@@ -104,12 +107,86 @@ impl ProgressSink for EntrySink {
     }
 }
 
+struct StageEntry {
+    stage: String,
+    status: Option<String>,
+    duration_ms: Option<u64>,
+    started: Instant,
+}
+
+// Remembers how long every stage took, in the order the stages started. It is what the run
+// stores in benchmark_run_stages.
+#[derive(Default)]
+pub struct StageRecorder {
+    entries: Mutex<Vec<StageEntry>>,
+}
+
+impl StageRecorder {
+    fn entries(&self) -> MutexGuard<'_, Vec<StageEntry>> {
+        self.entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn started(&self, key: &str) {
+        self.entries().push(StageEntry {
+            stage: key.to_string(),
+            status: None,
+            duration_ms: None,
+            started: Instant::now(),
+        });
+    }
+
+    // The duration the stage reports, or the time since it started when it reports none
+    pub fn completed(&self, key: &str, status: &str, duration_ms: Option<u64>) {
+        let mut entries = self.entries();
+
+        if let Some(entry) = entries
+            .iter_mut()
+            .rev()
+            .find(|entry| entry.stage == key && entry.status.is_none())
+        {
+            let elapsed = u64::try_from(entry.started.elapsed().as_millis()).ok();
+
+            entry.status = Some(status.to_string());
+            entry.duration_ms = duration_ms.or(elapsed);
+        }
+    }
+
+    // The finished stages. With an interrupted status, the stages that were still running
+    // are added with that status and the time they had run.
+    pub fn snapshot(&self, interrupted_status: Option<&str>) -> Vec<StageRecord> {
+        self.entries()
+            .iter()
+            .filter_map(|entry| match (&entry.status, interrupted_status) {
+                (Some(status), _) => Some(StageRecord {
+                    stage: entry.stage.clone(),
+                    status: status.clone(),
+                    duration_ms: entry.duration_ms,
+                }),
+                (None, Some(status)) => Some(StageRecord {
+                    stage: entry.stage.clone(),
+                    status: status.to_string(),
+                    duration_ms: u64::try_from(entry.started.elapsed().as_millis()).ok(),
+                }),
+                (None, None) => None,
+            })
+            .collect()
+    }
+}
+
+// The key of one mode of one workspace in the stage records
+pub fn workspace_stage_key(workspace: &str, mode: &str) -> String {
+    format!("workspaces:{workspace}:{mode}")
+}
+
 // Everything the execution needs besides the request: where progress goes and the
 // control handle. Cheap to clone, so later phases can hand it to sampler threads.
 #[derive(Clone)]
 pub struct RunContext {
     sink: Arc<dyn ProgressSink>,
     control: RunControl,
+    stages: Arc<StageRecorder>,
 }
 
 impl RunContext {
@@ -117,12 +194,17 @@ impl RunContext {
         Self {
             sink,
             control: RunControl::default(),
+            stages: Arc::new(StageRecorder::default()),
         }
     }
 
     // A context that shares the control of a run, so a cancel request reaches the execution
     pub fn with_control(sink: Arc<dyn ProgressSink>, control: RunControl) -> Self {
-        Self { sink, control }
+        Self {
+            sink,
+            control,
+            stages: Arc::new(StageRecorder::default()),
+        }
     }
 
     pub fn noop() -> Self {
@@ -146,13 +228,20 @@ impl RunContext {
         self.sink.wants_samples()
     }
 
+    // The stage durations of this run so far, see StageRecorder::snapshot
+    pub fn stage_records(&self, interrupted_status: Option<&str>) -> Vec<StageRecord> {
+        self.stages.snapshot(interrupted_status)
+    }
+
     pub fn stage_started(&self, stage: Stage) {
+        self.stages.started(stage.as_str());
         self.sink
             .emit(kind::STAGE_STARTED, json!({ "stage": stage.as_str() }));
     }
 
     // duration_ms is null when the step has no measured duration
     pub fn stage_completed(&self, stage: Stage, status: &str, duration_ms: Option<u64>) {
+        self.stages.completed(stage.as_str(), status, duration_ms);
         self.sink.emit(
             kind::STAGE_COMPLETED,
             json!({ "stage": stage.as_str(), "status": status, "duration_ms": duration_ms }),
@@ -183,6 +272,16 @@ impl RunContext {
 
     // `phase` is started, sampling or finished, `status` only comes with finished
     pub fn workspace_phase(&self, workspace: &str, mode: &str, phase: &str, status: Option<&str>) {
+        let key = workspace_stage_key(workspace, mode);
+
+        match phase {
+            "started" => self.stages.started(&key),
+            "finished" => self
+                .stages
+                .completed(&key, status.unwrap_or("success"), None),
+            _ => {}
+        }
+
         self.sink.emit(
             kind::WORKSPACE_PHASE,
             json!({ "workspace": workspace, "mode": mode, "phase": phase, "status": status }),

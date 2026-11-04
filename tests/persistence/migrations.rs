@@ -133,9 +133,11 @@ async fn creates_the_planned_indexes() {
     .unwrap();
 
     for expected in [
-        "idx_benchmark_runs_created_at",
-        "idx_benchmark_runs_runtime_id_created_at",
-        "idx_benchmark_runs_target_path_created_at",
+        "idx_benchmark_runs_visible_created_at",
+        "idx_benchmark_runs_visible_runtime_created_at",
+        "idx_benchmark_runs_visible_target_created_at",
+        "idx_benchmark_runs_visible_target_status_created_at",
+        "idx_benchmark_run_stages_stage",
         "idx_artifact_sizes_artifact_type_id",
     ] {
         assert!(

@@ -5,9 +5,7 @@ use uuid::Uuid;
 // Which submission path owns the execution slot
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunKind {
-    // The blocking POST /api/v1/benchmarks
-    Legacy,
-    // A background live run
+    // A background live run, the only way to start a benchmark
     Live,
 }
 
@@ -15,8 +13,7 @@ pub enum RunKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveRun {
     pub kind: RunKind,
-    // Known for live runs, a legacy run creates its id later inside the execution
-    pub run_id: Option<Uuid>,
+    pub run_id: Uuid,
 }
 
 // The one execution slot of the process, shared by every submission path.
@@ -36,7 +33,7 @@ impl RunSlot {
     pub fn try_acquire(
         self: &Arc<Self>,
         kind: RunKind,
-        run_id: Option<Uuid>,
+        run_id: Uuid,
     ) -> Result<RunPermit, ActiveRun> {
         let mut active = lock(&self.active);
 
@@ -63,7 +60,7 @@ impl RunSlot {
 pub struct RunPermit {
     slot: Arc<RunSlot>,
     kind: RunKind,
-    run_id: Option<Uuid>,
+    run_id: Uuid,
 }
 
 impl RunPermit {
@@ -71,7 +68,7 @@ impl RunPermit {
         self.kind
     }
 
-    pub fn run_id(&self) -> Option<Uuid> {
+    pub fn run_id(&self) -> Uuid {
         self.run_id
     }
 }
