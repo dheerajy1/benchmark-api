@@ -71,6 +71,7 @@ pub struct HttpLatencyComparison {
     pub baseline_status: Option<String>,
     pub comparison_status: Option<String>,
     pub requests_per_second: DecimalMetric,
+    pub total_requests: IntegerMetric,
     pub p50_ms: DecimalMetric,
     pub p95_ms: DecimalMetric,
     pub p99_ms: DecimalMetric,

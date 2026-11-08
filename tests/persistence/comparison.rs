@@ -183,6 +183,11 @@ async fn two_stored_runs_are_compared_from_sql() {
         json!("higher_is_better")
     );
 
+    let total = &metrics["http_latency"]["total_requests"];
+
+    assert_eq!(total["baseline_value"], json!(1000));
+    assert_eq!(total["comparison_value"], json!(1000));
+
     database.teardown().await;
 }
 

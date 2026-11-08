@@ -427,7 +427,7 @@ GET /api/v1/comparisons/summary?runIds=<baseline_run_id>,<comparison_run_id>
 | `startup_time` | `duration_ms` | lower is better |
 | `memory` | `baseline_rss_bytes`, `peak_rss_bytes`, `delta_rss_bytes` | lower is better |
 | `cpu` | `baseline_percent`, `average_percent`, `peak_percent` | lower is better |
-| `http_latency` | `requests_per_second` | higher is better |
+| `http_latency` | `requests_per_second`, `total_requests` | higher is better (`total_requests` is a count to display, the verdict follows the rate) |
 | `http_latency` | `p50_ms`, `p95_ms`, `p99_ms` | lower is better |
 | `artifact_size.source`, `.build`, `.excluded` | `bytes`, `file_count` | lower is better |
 | `workspaces[]`, matched by `name` and `mode` | `image_bytes`, `build_duration_ms`, `startup_duration_ms`, `baseline_rss_bytes`, `peak_rss_bytes`, `delta_rss_bytes`, `cpu_baseline_percent`, `cpu_average_percent`, `cpu_peak_percent` | lower is better |
@@ -474,7 +474,7 @@ A workspace entry exists for every name and mode either run has. A side that did
       "cpu": { "baseline_percent": {}, "average_percent": {}, "peak_percent": {} },
       "http_latency": {
         "baseline_status": "completed", "comparison_status": "completed",
-        "requests_per_second": {}, "p50_ms": {}, "p95_ms": {}, "p99_ms": {}
+        "requests_per_second": {}, "total_requests": {}, "p50_ms": {}, "p95_ms": {}, "p99_ms": {}
       },
       "artifact_size": {
         "source": { "bytes": {}, "file_count": {} },

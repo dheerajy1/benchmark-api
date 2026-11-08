@@ -78,6 +78,12 @@ pub fn compare(baseline: &StoredRun, comparison: &StoredRun) -> ComparisonRespon
                     http_throughput(comp),
                     Direction::HigherIsBetter,
                 ),
+                // A count for display, the verdict of the comparison is the rate
+                total_requests: metric::integer(
+                    http_total(base),
+                    http_total(comp),
+                    Direction::HigherIsBetter,
+                ),
                 p50_ms: metric::decimal(
                     http_stat(base, |l| l.p50_ms),
                     http_stat(comp, |l| l.p50_ms),
@@ -252,6 +258,13 @@ fn http_throughput(run: &BenchmarkResult) -> Option<f64> {
     completed_http(run)
         .filter(|latency| latency.total_requests > 0)
         .map(|latency| latency.requests_per_second)
+}
+
+// Requests sent by a completed workload, zero observed requests is no measurement
+fn http_total(run: &BenchmarkResult) -> Option<u64> {
+    completed_http(run)
+        .map(|latency| latency.total_requests)
+        .filter(|total| *total > 0)
 }
 
 fn http_stat(run: &BenchmarkResult, read: impl Fn(&HttpLatency) -> Option<f64>) -> Option<f64> {

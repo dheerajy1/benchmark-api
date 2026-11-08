@@ -165,7 +165,15 @@ impl TargetProcess {
 
         self.shut_down = true;
 
-        process_group::stop_child_group(&mut self.child)
+        let result = process_group::stop_child_group(&mut self.child);
+
+        // Bun prints its own SIGTERM line, a compiled target stops silently, so say it here
+        // for every runtime
+        if result.is_ok() {
+            eprintln!("[target] stopped by benchmark-api");
+        }
+
+        result
     }
 }
 
