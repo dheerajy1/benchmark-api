@@ -30,6 +30,8 @@ const SELECT_TRENDS: &str = "SELECT r.id, r.created_at, \
      CASE WHEN hs.code = $2 AND h.total_requests > 0 \
           THEN h.requests_per_second::float8 END AS requests_per_second, \
      CASE WHEN hs.code = $2 AND h.total_requests > 0 \
+          THEN h.total_requests END AS total_requests, \
+     CASE WHEN hs.code = $2 AND h.total_requests > 0 \
           THEN h.p95_ms::float8 END AS p95_ms \
      FROM benchmark_runs r \
      LEFT JOIN benchmark_builds b ON b.benchmark_run_id = r.id \
@@ -139,6 +141,7 @@ fn trend_row(row: &PgRow) -> Result<TrendRow, PersistenceError> {
         memory_peak_bytes: row.try_get("memory_peak_bytes")?,
         cpu_average_percent: row.try_get("cpu_average_percent")?,
         requests_per_second: row.try_get("requests_per_second")?,
+        total_requests: row.try_get("total_requests")?,
         p95_ms: row.try_get("p95_ms")?,
     })
 }

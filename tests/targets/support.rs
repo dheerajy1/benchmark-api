@@ -58,6 +58,7 @@ pub fn targets_json(dir: &Path) -> String {
             "demo": {
                 "name": "Demo API",
                 "path": dir.display().to_string(),
+                "build": { "command": "bun run build", "output_dir": "dist" },
                 "startup": {
                     "command": { "program": "bun", "args": ["run", "dev"] },
                     "readiness": {
@@ -80,7 +81,8 @@ pub fn targets_json(dir: &Path) -> String {
             },
             "plain": {
                 "name": "Plain API",
-                "path": dir.display().to_string()
+                "path": dir.display().to_string(),
+                "build": { "command": "true" }
             }
         }
     })

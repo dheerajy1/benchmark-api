@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 use benchmark_api::{
     features::v1::benchmark::{
         configuration::RunConfiguration,
-        model::{BenchmarkRequest, BuildCommand},
+        model::{BenchmarkRequest, BuildCommand, BuildRequest},
         request::{ReadinessRequest, StartupRequest, WorkloadRequest},
         run_origin::RunOrigin,
     },
@@ -37,6 +37,11 @@ fn request_with_secrets() -> BenchmarkRequest {
 
     BenchmarkRequest {
         path: PathBuf::from("/absolute/path/to/project"),
+        build: BuildRequest {
+            command: "bun run build".to_string(),
+            output_dir: None,
+        },
+        cleanup: None,
         startup: Some(StartupRequest {
             command: BuildCommand {
                 program: "bun".to_string(),

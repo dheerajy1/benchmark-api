@@ -119,6 +119,7 @@ impl EventLog {
 
         if event_kind == kind::STAGE_STARTED
             && let Some(stage) = data.get("stage").and_then(Value::as_str)
+            && stage != "cleanup"
         {
             self.current_stage = Some(stage.to_string());
         }

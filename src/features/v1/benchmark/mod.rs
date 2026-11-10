@@ -1,3 +1,4 @@
+pub mod cleanup;
 pub mod configuration;
 pub mod discovery;
 pub mod docker;

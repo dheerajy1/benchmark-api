@@ -59,7 +59,7 @@ async fn a_running_run_is_described_and_a_finished_run_is_not() {
     let gate = Arc::new(AtomicBool::new(false));
     let (router, live) = router_with_gate(&gate);
 
-    let body = json!({ "path": dir.path().display().to_string() }).to_string();
+    let body = json!({ "path": dir.path().display().to_string(), "build": { "command": "true", "output_dir": "." } }).to_string();
     let (status, accepted) = send(router.clone(), post_to("/api/v1/live-runs", &body)).await;
 
     assert_eq!(status, StatusCode::ACCEPTED, "{accepted}");
@@ -96,7 +96,7 @@ async fn the_workload_progress_is_the_newest_sample_progress() {
     let gate = Arc::new(AtomicBool::new(false));
     let (router, live) = router_with_gate(&gate);
 
-    let body = json!({ "path": dir.path().display().to_string() }).to_string();
+    let body = json!({ "path": dir.path().display().to_string(), "build": { "command": "true", "output_dir": "." } }).to_string();
     let (_, accepted) = send(router.clone(), post_to("/api/v1/live-runs", &body)).await;
     let run_id = Uuid::parse_str(accepted["data"]["run_id"].as_str().unwrap()).unwrap();
 

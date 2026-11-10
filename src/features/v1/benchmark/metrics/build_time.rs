@@ -1,12 +1,9 @@
 use std::{
-    fs,
     path::Path,
     process::{Command, ExitStatus},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-
-use serde_json::Value;
 
 use crate::features::v1::benchmark::{
     live::RunControl,
@@ -29,10 +26,10 @@ impl Default for BuildTimeConfig {
     }
 }
 
-pub fn measure(target: &Path, runtime: Option<&str>) -> Result<BuildTime, String> {
+pub fn measure(target: &Path, command: &BuildCommand) -> Result<BuildTime, String> {
     measure_with_config(
         target,
-        runtime,
+        command,
         &BuildTimeConfig::default(),
         &RunControl::default(),
     )
@@ -41,12 +38,12 @@ pub fn measure(target: &Path, runtime: Option<&str>) -> Result<BuildTime, String
 
 pub fn measure_with_timeout(
     target: &Path,
-    runtime: Option<&str>,
+    command: &BuildCommand,
     timeout: Duration,
 ) -> Result<BuildTime, String> {
     measure_with_config(
         target,
-        runtime,
+        command,
         &BuildTimeConfig { timeout },
         &RunControl::default(),
     )
@@ -57,32 +54,18 @@ pub fn measure_with_timeout(
 // checked to be gone before this answers, so a cancelled build leaves nothing running.
 pub fn measure_cancellable(
     target: &Path,
-    runtime: Option<&str>,
+    command: &BuildCommand,
     control: &RunControl,
 ) -> Result<BuildTime, Stop> {
-    measure_with_config(target, runtime, &BuildTimeConfig::default(), control)
+    measure_with_config(target, command, &BuildTimeConfig::default(), control)
 }
 
 fn measure_with_config(
     target: &Path,
-    runtime: Option<&str>,
+    command: &BuildCommand,
     config: &BuildTimeConfig,
     control: &RunControl,
 ) -> Result<BuildTime, Stop> {
-    let command = discover_build_command(target, runtime)?;
-
-    let Some(command) = command else {
-        return Ok(BuildTime {
-            status: "no_build_command".to_string(),
-            duration_ms: None,
-            command: None,
-            working_directory: None,
-            started_at: None,
-            finished_at: None,
-            exit_code: None,
-        });
-    };
-
     let working_directory = target
         .canonicalize()
         .map_err(|error| format!("Failed to resolve working directory: {error}"))?;
@@ -90,7 +73,7 @@ fn measure_with_config(
     let started_at = format_timestamp(SystemTime::now());
     let started = Instant::now();
 
-    let mut child = spawn_build_process(&command, &working_directory)?;
+    let mut child = spawn_build_process(command, &working_directory)?;
 
     let outcome = wait_for_process(&mut child, config.timeout, control);
 
@@ -109,7 +92,7 @@ fn measure_with_config(
                 "failed".to_string()
             },
             duration_ms: Some(duration_ms),
-            command: Some(command),
+            command: Some(command.clone()),
             working_directory: Some(working_directory.display().to_string()),
             started_at: Some(started_at),
             finished_at: Some(finished_at),
@@ -118,53 +101,13 @@ fn measure_with_config(
         ProcessOutcome::TimedOut => Ok(BuildTime {
             status: "timeout".to_string(),
             duration_ms: Some(duration_ms),
-            command: Some(command),
+            command: Some(command.clone()),
             working_directory: Some(working_directory.display().to_string()),
             started_at: Some(started_at),
             finished_at: Some(finished_at),
             exit_code: None,
         }),
     }
-}
-
-pub fn discover_build_command(
-    target: &Path,
-    runtime: Option<&str>,
-) -> Result<Option<BuildCommand>, String> {
-    let program = match runtime {
-        Some("bun") => "bun",
-        Some("node") => "npm",
-        Some("python" | "rust" | "go") | None => return Ok(None),
-        Some(other) => {
-            return Err(format!("Unsupported runtime for build_time: {other}"));
-        }
-    };
-
-    let package_json_path = target.join("package.json");
-
-    let contents = fs::read_to_string(&package_json_path)
-        .map_err(|error| format!("Failed to read {}: {error}", package_json_path.display()))?;
-
-    let package_json: Value = serde_json::from_str(&contents)
-        .map_err(|error| format!("Failed to parse {}: {error}", package_json_path.display()))?;
-
-    let Some(build_script) = package_json
-        .get("scripts")
-        .and_then(Value::as_object)
-        .and_then(|scripts| scripts.get("build"))
-        .and_then(Value::as_str)
-    else {
-        return Ok(None);
-    };
-
-    if build_script.is_empty() {
-        return Ok(None);
-    }
-
-    Ok(Some(BuildCommand {
-        program: program.to_string(),
-        args: vec!["run".to_string(), "build".to_string()],
-    }))
 }
 
 fn spawn_build_process(

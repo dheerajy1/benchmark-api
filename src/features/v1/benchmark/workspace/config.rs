@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use crate::features::v1::benchmark::redact::REDACTED;
+use crate::features::v1::benchmark::{model::CleanupRequest, redact::REDACTED};
 
 pub const DEFAULT_READY_TIMEOUT_SECONDS: u64 = 60;
 pub const DEFAULT_IDLE_SECONDS: u64 = 30;
@@ -102,6 +102,9 @@ pub struct DockerRequest {
     // May contain the {ENV_FILE} placeholder
     #[serde(default)]
     pub run_command: String,
+    // Runs in the project path when the whole run is over, for example to remove the image
+    #[serde(default)]
+    pub cleanup: Option<CleanupRequest>,
 }
 
 fn default_ready_timeout() -> u64 {

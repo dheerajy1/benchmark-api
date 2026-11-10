@@ -8,16 +8,16 @@ use uuid::Uuid;
 use crate::config::env::Env;
 
 use super::{
-    discovery,
+    cleanup, discovery,
     docker::DockerCli,
     error::BenchmarkError,
-    live::{Metric, RunContext, RunPermit, Stage},
+    live::{Metric, RunContext, RunPermit, Stage, skip},
     metrics::{artifact_size, build_time, memory::MemoryConfig},
     model::{BenchmarkRequest, BenchmarkResult},
     runtime::{self, RuntimeProgress},
     validation,
     workspace::{
-        orchestrator,
+        command, orchestrator,
         result::{STATUS_SUCCESS as WORKSPACE_SUCCESS, WorkspaceResult},
     },
 };
@@ -112,7 +112,53 @@ fn run_report(
         Err(error) => RunEnd::Failed(error),
     };
 
+    run_cleanup(target, request, ctx);
+
     RunReport { result, end }
+}
+
+// The cleanup commands run last, however the run ended: the build's first, then the Docker ones.
+// A cleanup that fails shows on its own step and never changes how the run ended.
+fn run_cleanup(target: &Path, request: &BenchmarkRequest, ctx: &RunContext) {
+    // Validation has already accepted every command, so an error here has nothing to run
+    let Ok(steps) = cleanup::plan(request) else {
+        return;
+    };
+
+    if steps.is_empty() {
+        return;
+    }
+
+    ctx.stage_started(Stage::Cleanup);
+
+    let started = Instant::now();
+    let mut all_succeeded = true;
+
+    for step in &steps {
+        ctx.cleanup_step(step, "started", None, None, None);
+
+        let outcome = cleanup::run(target, step);
+
+        ctx.cleanup_step(
+            step,
+            "finished",
+            Some(&outcome.status),
+            outcome.duration_ms,
+            outcome.message.as_deref(),
+        );
+
+        all_succeeded &= outcome.succeeded();
+    }
+
+    ctx.stage_completed(
+        Stage::Cleanup,
+        if all_succeeded {
+            STATUS_SUCCESS
+        } else {
+            "failed"
+        },
+        u64::try_from(started.elapsed().as_millis()).ok(),
+    );
 }
 
 // Runs the steps in order and puts each result into `result` as soon as its step is complete
@@ -136,20 +182,31 @@ fn fill(
 
     ctx.check_cancelled()?;
 
-    ctx.stage_started(Stage::ArtifactSize);
-    let artifact_size = artifact_size::measure(target)?;
-    ctx.measurement(Metric::ArtifactSize, &artifact_size);
-    ctx.stage_completed(Stage::ArtifactSize, STATUS_SUCCESS, None);
-    result.metrics.artifact_size = Some(artifact_size);
+    // The caller's build command, already checked by validation
+    let command = command::split(&request.build.command).map_err(BenchmarkError::Validation)?;
+
+    ctx.stage_started(Stage::Build);
+    let build_time = build_time::measure_cancellable(target, &command, ctx.control())?;
+    ctx.measurement(Metric::BuildTime, &build_time);
+    ctx.stage_completed(Stage::Build, &build_time.status, build_time.duration_ms);
+
+    let build_succeeded = build_time.status == STATUS_SUCCESS;
+    result.metrics.build_time = Some(build_time);
 
     ctx.check_cancelled()?;
 
-    ctx.stage_started(Stage::Build);
-    let build_time =
-        build_time::measure_cancellable(target, runtime_code.as_deref(), ctx.control())?;
-    ctx.measurement(Metric::BuildTime, &build_time);
-    ctx.stage_completed(Stage::Build, &build_time.status, build_time.duration_ms);
-    result.metrics.build_time = Some(build_time);
+    // The artifact is what the build produced, so it is measured after the build and only when
+    // the build worked
+    if build_succeeded {
+        ctx.stage_started(Stage::ArtifactSize);
+        let output_dir = artifact_size::output_dir(&request.build, runtime_code.as_deref());
+        let artifact_size = artifact_size::measure(target, &output_dir)?;
+        ctx.measurement(Metric::ArtifactSize, &artifact_size);
+        ctx.stage_completed(Stage::ArtifactSize, STATUS_SUCCESS, None);
+        result.metrics.artifact_size = Some(artifact_size);
+    } else {
+        ctx.stage_skipped(Stage::ArtifactSize, skip::BUILD_NOT_SUCCESSFUL);
+    }
 
     ctx.check_cancelled()?;
 

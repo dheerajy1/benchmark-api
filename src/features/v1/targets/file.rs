@@ -17,6 +17,8 @@ pub struct TargetsFile {
 pub struct TargetFile {
     pub name: String,
     pub path: PathBuf,
+    // Required, the build command is never detected
+    pub build: BuildFile,
     #[serde(default)]
     pub startup: Option<StartupFile>,
     #[serde(default)]
@@ -25,6 +27,14 @@ pub struct TargetFile {
     // request type never prints it and the view only shows variable names.
     #[serde(default)]
     pub workspaces: Vec<WorkspaceRequest>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuildFile {
+    pub command: String,
+    #[serde(default)]
+    pub output_dir: Option<String>,
 }
 
 #[derive(Deserialize)]

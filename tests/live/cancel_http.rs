@@ -40,7 +40,7 @@ fn router_with(
 }
 
 fn valid_body(dir: &TempDir) -> String {
-    json!({ "path": dir.path().display().to_string() }).to_string()
+    json!({ "path": dir.path().display().to_string(), "build": { "command": "true", "output_dir": "." } }).to_string()
 }
 
 // Starts a run over HTTP, returns its id and its cancel token

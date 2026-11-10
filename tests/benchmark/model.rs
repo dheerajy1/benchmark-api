@@ -8,8 +8,10 @@ use uuid::Uuid;
 
 #[test]
 fn deserializes_benchmark_request() {
-    let request: BenchmarkRequest =
-        serde_json::from_str(r#"{"path":"~/dev/vs-code/recordlog-api"}"#).unwrap();
+    let request: BenchmarkRequest = serde_json::from_str(
+        r#"{"path":"~/dev/vs-code/recordlog-api","build":{"command":"true"}}"#,
+    )
+    .unwrap();
 
     assert_eq!(
         request.path.to_string_lossy(),

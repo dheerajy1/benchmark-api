@@ -158,6 +158,7 @@ async fn a_complete_successful_run_keeps_every_stored_value() {
     assert_eq!(row.memory_peak_bytes, Some(73_400_320));
     assert_eq!(row.cpu_average_percent, Some(12.4));
     assert_eq!(row.requests_per_second, Some(121.45));
+    assert_eq!(row.total_requests, Some(1000));
     assert_eq!(row.p95_ms, Some(8.7));
 
     database.teardown().await;
@@ -249,6 +250,7 @@ async fn a_partial_workload_has_no_trend_http_metrics() {
     let row = row_of(&rows, 1);
 
     assert_eq!(row.requests_per_second, None);
+    assert_eq!(row.total_requests, None);
     assert_eq!(row.p95_ms, None);
 
     // Memory and CPU have no status and are kept
@@ -346,6 +348,7 @@ async fn a_run_where_every_step_was_skipped_has_six_null_metrics() {
             memory_peak_bytes: None,
             cpu_average_percent: None,
             requests_per_second: None,
+            total_requests: None,
             p95_ms: None,
         }]
     );

@@ -82,6 +82,10 @@ pub fn validate(workspace: &WorkspaceRequest) -> Result<(), String> {
             ));
         }
 
+        if let Some(cleanup) = &docker.cleanup {
+            crate::features::v1::benchmark::cleanup::validate(cleanup, "docker.cleanup")?;
+        }
+
         validate_image(&docker.image)?;
         validate_container_name(&docker.container_name)?;
 

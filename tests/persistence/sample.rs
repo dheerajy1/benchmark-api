@@ -139,6 +139,8 @@ pub fn configuration() -> benchmark_api::features::v1::benchmark::configuration:
         target_id: None,
         target_name: None,
         target_path: "/absolute/path/to/project".to_string(),
+        build: None,
+        cleanup: None,
         startup: None,
         workload: None,
         workspaces: Vec::new(),
@@ -149,7 +151,8 @@ pub fn configuration() -> benchmark_api::features::v1::benchmark::configuration:
 pub fn target_configuration()
 -> benchmark_api::features::v1::benchmark::configuration::RunConfiguration {
     use benchmark_api::features::v1::benchmark::configuration::{
-        ReadinessConfiguration, RunConfiguration, StartupConfiguration, WorkloadConfiguration,
+        CleanupConfiguration, ReadinessConfiguration, RunConfiguration, StartupConfiguration,
+        WorkloadConfiguration,
     };
 
     RunConfiguration {
@@ -157,6 +160,11 @@ pub fn target_configuration()
         target_id: Some("demo".to_string()),
         target_name: Some("Demo API".to_string()),
         target_path: "/absolute/path/to/project".to_string(),
+        build: None,
+        cleanup: Some(CleanupConfiguration {
+            command: "docker system prune -af".to_string(),
+            timeout_seconds: 120,
+        }),
         startup: Some(StartupConfiguration {
             program: "bun".to_string(),
             args: vec!["run".to_string(), "dev".to_string()],

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
+    cleanup,
     model::BenchmarkRequest,
     run_origin::RunOrigin,
     workspace::{config::WorkspaceRequest, env_file},
@@ -14,10 +15,29 @@ pub struct RunConfiguration {
     pub target_id: Option<String>,
     pub target_name: Option<String>,
     pub target_path: String,
+    // None for a run stored before the build command was given by the caller
+    pub build: Option<BuildConfiguration>,
+    // None for a run without a cleanup command
+    pub cleanup: Option<CleanupConfiguration>,
     pub startup: Option<StartupConfiguration>,
     pub workload: Option<WorkloadConfiguration>,
     // Empty for a run without workspaces
     pub workspaces: Vec<WorkspaceConfiguration>,
+}
+
+// The build command the caller gave and the build output directory they named. The directory
+// is None when the runtime default was measured.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BuildConfiguration {
+    pub command: String,
+    pub output_dir: Option<String>,
+}
+
+// The cleanup command of a run and the seconds it was allowed to take
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupConfiguration {
+    pub command: String,
+    pub timeout_seconds: u64,
 }
 
 // One workspace as a run used it. Environment variable names only, never a value.
@@ -52,6 +72,9 @@ pub struct DockerConfiguration {
     pub container_name: String,
     // The template, the {ENV_FILE} placeholder is still in it
     pub run_command: String,
+    // None for a run without a Docker cleanup, and for runs stored before it existed
+    #[serde(default)]
+    pub cleanup: Option<CleanupConfiguration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -121,6 +144,26 @@ impl RunConfiguration {
             target_id,
             target_name,
             target_path: request.path.display().to_string(),
+            build: Some(BuildConfiguration {
+                command: request.build.command.trim().to_string(),
+                output_dir: request
+                    .build
+                    .output_dir
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|dir| !dir.is_empty())
+                    .map(str::to_string),
+            }),
+            cleanup: request
+                .cleanup
+                .as_ref()
+                .filter(|cleanup| cleanup::is_set(cleanup))
+                .map(|cleanup| CleanupConfiguration {
+                    command: cleanup.command.trim().to_string(),
+                    timeout_seconds: cleanup
+                        .timeout_seconds
+                        .unwrap_or(cleanup::DEFAULT_TIMEOUT_SECONDS),
+                }),
             startup: request
                 .startup
                 .as_ref()
@@ -214,6 +257,16 @@ impl WorkspaceConfiguration {
                     image: docker.image.clone(),
                     container_name: docker.container_name.clone(),
                     run_command: docker.run_command.clone(),
+                    cleanup: docker
+                        .cleanup
+                        .as_ref()
+                        .filter(|cleanup| cleanup::is_set(cleanup))
+                        .map(|cleanup| CleanupConfiguration {
+                            command: cleanup.command.trim().to_string(),
+                            timeout_seconds: cleanup
+                                .timeout_seconds
+                                .unwrap_or(cleanup::DEFAULT_TIMEOUT_SECONDS),
+                        }),
                 }),
         }
     }

@@ -4,8 +4,9 @@ use uuid::Uuid;
 
 use crate::{
     features::v1::benchmark::configuration::{
-        ReadinessConfiguration, ReadinessSummary, RunConfiguration, StartupConfiguration,
-        StartupSummary, WorkloadConfiguration, WorkspaceConfiguration,
+        BuildConfiguration, CleanupConfiguration, ReadinessConfiguration, ReadinessSummary,
+        RunConfiguration, StartupConfiguration, StartupSummary, WorkloadConfiguration,
+        WorkspaceConfiguration,
     },
     persistence::{
         error::PersistenceError,
@@ -20,7 +21,8 @@ const SELECT_COLUMNS: &str = "c.source, c.target_id, c.target_name, c.target_pat
     c.readiness_path, c.readiness_method, c.readiness_expected_status, \
     c.readiness_header_names, c.workload_method, c.workload_path, c.workload_mode, \
     c.workload_requests, c.workload_duration_seconds, c.workload_concurrency, \
-    c.workload_header_names, c.workspaces";
+    c.workload_header_names, c.workspaces, c.build_command, c.build_output_dir, \
+    c.cleanup_command, c.cleanup_timeout_seconds";
 
 // Writes the configuration of one run on the caller's transaction, so it is stored
 // with the run or not at all
@@ -44,10 +46,11 @@ pub async fn insert(
             readiness_type, readiness_host, readiness_port, readiness_path,
             readiness_method, readiness_expected_status, readiness_header_names,
             workload_method, workload_path, workload_mode, workload_requests,
-            workload_duration_seconds, workload_concurrency, workload_header_names, workspaces
+            workload_duration_seconds, workload_concurrency, workload_header_names, workspaces,
+            build_command, build_output_dir, cleanup_command, cleanup_timeout_seconds
          ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-            $15, $16, $17, $18, $19, $20, $21, $22
+            $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
          )",
     )
     .bind(run_id)
@@ -72,6 +75,30 @@ pub async fn insert(
     .bind(concurrency)
     .bind(workload.map(|workload| workload.header_names.clone()))
     .bind(Json(configuration.workspaces.clone()))
+    .bind(
+        configuration
+            .build
+            .as_ref()
+            .map(|build| build.command.as_str()),
+    )
+    .bind(
+        configuration
+            .build
+            .as_ref()
+            .and_then(|build| build.output_dir.as_deref()),
+    )
+    .bind(
+        configuration
+            .cleanup
+            .as_ref()
+            .map(|cleanup| cleanup.command.as_str()),
+    )
+    .bind(to_bigint(
+        configuration
+            .cleanup
+            .as_ref()
+            .map(|cleanup| cleanup.timeout_seconds),
+    )?)
     .execute(&mut *connection)
     .await?;
 
@@ -105,7 +132,8 @@ pub async fn list(
     limit: i64,
 ) -> Result<Vec<StoredConfigurationRun>, PersistenceError> {
     let sql = format!(
-        "SELECT r.id AS run_id, r.created_at, r.target_path AS run_target_path, \
+        "SELECT r.id AS run_id, r.created_at, r.status AS run_status, \
+         r.target_path AS run_target_path, \
          s.program AS legacy_program, s.args AS legacy_args, \
          s.readiness_type AS legacy_readiness_type, s.readiness_host AS legacy_readiness_host, \
          s.readiness_port AS legacy_readiness_port, s.readiness_path AS legacy_readiness_path, \
@@ -126,6 +154,7 @@ pub async fn list(
     for row in &rows {
         let run_id: Uuid = row.try_get("run_id")?;
         let created_at: DateTime<Utc> = row.try_get("created_at")?;
+        let status: String = row.try_get("run_status")?;
 
         let (path, startup, configuration) = match row.try_get::<Option<String>, _>("source")? {
             None => (
@@ -145,6 +174,7 @@ pub async fn list(
         runs.push(StoredConfigurationRun {
             run_id,
             created_at,
+            status,
             path,
             startup,
             configuration,
@@ -242,11 +272,29 @@ fn from_row(row: &PgRow) -> Result<RunConfiguration, PersistenceError> {
         }
     };
 
+    let build = match row.try_get::<Option<String>, _>("build_command")? {
+        None => None,
+        Some(command) => Some(BuildConfiguration {
+            command,
+            output_dir: row.try_get("build_output_dir")?,
+        }),
+    };
+
+    let cleanup = match row.try_get::<Option<String>, _>("cleanup_command")? {
+        None => None,
+        Some(command) => Some(CleanupConfiguration {
+            command,
+            timeout_seconds: required_u64(row, "cleanup_timeout_seconds")?,
+        }),
+    };
+
     Ok(RunConfiguration {
         source,
         target_id: row.try_get("target_id")?,
         target_name: row.try_get("target_name")?,
         target_path: required_string(row, "target_path")?,
+        build,
+        cleanup,
         startup,
         workload,
         workspaces: row

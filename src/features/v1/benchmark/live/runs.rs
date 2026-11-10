@@ -15,6 +15,7 @@ use crate::{
     config::env::Env,
     errors::{api_error::ApiError, catalog::ErrorCode},
     features::v1::benchmark::{
+        cleanup,
         configuration::RunConfiguration,
         error::BenchmarkError,
         model::{BenchmarkRequest, BenchmarkResult},
@@ -292,6 +293,7 @@ fn plan_of(request: &BenchmarkRequest) -> Value {
         "startup": request.startup.is_some(),
         "workload": workload,
         "workspaces": request.workspaces.len(),
+        "cleanup": cleanup::is_requested(request),
     })
 }
 
@@ -405,13 +407,25 @@ impl Supervisor {
 
                     self.persist(entry, ctx, result, outcome).await
                 } else {
-                    self.persist_stopped(entry, ctx, result, Stopped::Cancelled)
-                        .await
+                    self.persist_stopped(
+                        entry,
+                        ctx,
+                        result,
+                        entry.current_stage(),
+                        Stopped::Cancelled,
+                    )
+                    .await
                 }
             }
             RunEnd::Cancelled => {
-                self.persist_stopped(entry, ctx, result, Stopped::Cancelled)
-                    .await
+                self.persist_stopped(
+                    entry,
+                    ctx,
+                    result,
+                    entry.current_stage(),
+                    Stopped::Cancelled,
+                )
+                .await
             }
             RunEnd::Failed(error) => {
                 // A failure that happened on its own is reported as it happened, even when a
@@ -424,6 +438,7 @@ impl Supervisor {
                     entry,
                     ctx,
                     result,
+                    entry.current_stage(),
                     Stopped::Failed {
                         code,
                         message: error.to_string(),
@@ -474,17 +489,18 @@ impl Supervisor {
         entry: &RunEntry,
         ctx: &RunContext,
         result: BenchmarkResult,
+        stage: Option<String>,
         stopped: Stopped,
     ) {
-        let stage = entry.current_stage();
-
         let outcome = match &stopped {
             Stopped::Cancelled => {
-                RunOutcome::cancelled(stage, ctx.stage_records(Some("cancelled")))
+                RunOutcome::cancelled(stage.clone(), ctx.stage_records(Some("cancelled")))
             }
-            Stopped::Failed { message, .. } => {
-                RunOutcome::failed(stage, message.clone(), ctx.stage_records(Some("failed")))
-            }
+            Stopped::Failed { message, .. } => RunOutcome::failed(
+                stage.clone(),
+                message.clone(),
+                ctx.stage_records(Some("failed")),
+            ),
         };
 
         let saved = self
@@ -499,9 +515,9 @@ impl Supervisor {
             .map(|error| format!("Failed to persist benchmark result: {error}"));
 
         match stopped {
-            Stopped::Cancelled => cancelled(entry, persisted, persist_error),
+            Stopped::Cancelled => cancelled(entry, stage, persisted, persist_error),
             Stopped::Failed { code, message } => {
-                fail_stored(entry, code, message, persisted, persist_error)
+                fail_stored(entry, code, message, stage, persisted, persist_error)
             }
         }
     }
@@ -509,7 +525,7 @@ impl Supervisor {
 
 // Records the terminal failure of a run that could not be stored
 fn fail(entry: &RunEntry, code: &str, message: String) {
-    fail_stored(entry, code, message, false, None);
+    fail_stored(entry, code, message, entry.current_stage(), false, None);
 }
 
 // Records the terminal failure of a run, with the stage that was last started
@@ -517,11 +533,10 @@ fn fail_stored(
     entry: &RunEntry,
     code: &str,
     message: String,
+    stage: Option<String>,
     persisted: bool,
     persist_error: Option<String>,
 ) {
-    let stage = entry.current_stage();
-
     let mut data = json!({
         "code": code,
         "message": message,
@@ -538,9 +553,12 @@ fn fail_stored(
 
 // Records that the run stopped on request. Only called once the execution has returned, so its
 // work and its cleanup are over.
-fn cancelled(entry: &RunEntry, persisted: bool, persist_error: Option<String>) {
-    let stage = entry.current_stage();
-
+fn cancelled(
+    entry: &RunEntry,
+    stage: Option<String>,
+    persisted: bool,
+    persist_error: Option<String>,
+) {
     let mut data = json!({ "stage": stage, "persisted": persisted });
 
     if let Some(error) = persist_error {

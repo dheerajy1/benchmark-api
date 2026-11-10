@@ -34,6 +34,7 @@ pub struct SummaryMetrics {
     pub memory_peak_bytes: Option<u64>,
     pub cpu_average_percent: Option<f64>,
     pub requests_per_second: Option<f64>,
+    pub total_requests: Option<u64>,
     pub p95_ms: Option<f64>,
 }
 

@@ -3,8 +3,10 @@ use serde_json::json;
 
 #[test]
 fn path_only_request_stays_valid() {
-    let request: BenchmarkRequest =
-        serde_json::from_str(r#"{"path":"~/dev/vs-code/recordlog-api"}"#).unwrap();
+    let request: BenchmarkRequest = serde_json::from_str(
+        r#"{"path":"~/dev/vs-code/recordlog-api","build":{"command":"true"}}"#,
+    )
+    .unwrap();
 
     assert_eq!(
         request.path.to_string_lossy(),
@@ -17,6 +19,7 @@ fn path_only_request_stays_valid() {
 #[test]
 fn workload_is_optional() {
     let request: BenchmarkRequest = serde_json::from_value(json!({
+        "build": { "command": "true" },
         "path": "/tmp/project",
         "startup": {
             "command": { "program": "bun", "args": ["run", "start"] },
@@ -39,6 +42,7 @@ fn workload_is_optional() {
 #[test]
 fn deserializes_workload_configuration() {
     let request: BenchmarkRequest = serde_json::from_value(json!({
+        "build": { "command": "true" },
         "path": "/tmp/project",
         "workload": {
             "method": "GET",
@@ -66,6 +70,7 @@ fn deserializes_workload_configuration() {
 #[test]
 fn workload_headers_are_optional() {
     let request: BenchmarkRequest = serde_json::from_value(json!({
+        "build": { "command": "true" },
         "path": "/tmp/project",
         "workload": {
             "method": "GET",
@@ -82,6 +87,7 @@ fn workload_headers_are_optional() {
 #[test]
 fn workload_requires_concurrency() {
     let missing_concurrency = serde_json::from_value::<BenchmarkRequest>(json!({
+        "build": { "command": "true" },
         "path": "/tmp/project",
         "workload": { "method": "GET", "path": "/health", "requests": 10 }
     }));
@@ -92,6 +98,7 @@ fn workload_requires_concurrency() {
 #[test]
 fn deserializes_duration_mode_workload() {
     let request: BenchmarkRequest = serde_json::from_value(json!({
+        "build": { "command": "true" },
         "path": "/tmp/project",
         "workload": {
             "method": "GET",
@@ -113,6 +120,7 @@ fn deserializes_duration_mode_workload() {
 #[test]
 fn request_count_mode_has_no_duration() {
     let request: BenchmarkRequest = serde_json::from_value(json!({
+        "build": { "command": "true" },
         "path": "/tmp/project",
         "workload": {
             "method": "GET",
@@ -132,6 +140,7 @@ fn request_count_mode_has_no_duration() {
 #[test]
 fn requests_and_duration_both_deserialize_so_validation_can_reject_them() {
     let request: BenchmarkRequest = serde_json::from_value(json!({
+        "build": { "command": "true" },
         "path": "/tmp/project",
         "workload": {
             "method": "GET",
@@ -153,6 +162,7 @@ fn requests_and_duration_both_deserialize_so_validation_can_reject_them() {
 fn negative_or_fractional_duration_fails_to_deserialize() {
     for duration in [json!(-1), json!(1.5), json!("30")] {
         let result = serde_json::from_value::<BenchmarkRequest>(json!({
+            "build": { "command": "true" },
             "path": "/tmp/project",
             "workload": {
                 "method": "GET",
@@ -169,6 +179,7 @@ fn negative_or_fractional_duration_fails_to_deserialize() {
 #[test]
 fn deserializes_startup_with_readiness_headers() {
     let request: BenchmarkRequest = serde_json::from_value(json!({
+        "build": { "command": "true" },
         "path": "/tmp/project",
         "startup": {
             "command": { "program": "bun", "args": ["run", "start"] },
@@ -209,6 +220,7 @@ fn deserializes_startup_with_readiness_headers() {
 #[test]
 fn readiness_headers_are_optional() {
     let request: BenchmarkRequest = serde_json::from_value(json!({
+        "build": { "command": "true" },
         "path": "/tmp/project",
         "startup": {
             "command": { "program": "bun", "args": [] },

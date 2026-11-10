@@ -1,10 +1,46 @@
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use walkdir::WalkDir;
 
-use super::super::model::{ArtifactSize, ArtifactSizeCategory};
+use super::super::model::{ArtifactSize, ArtifactSizeCategory, BuildRequest};
 
-pub fn measure(path: &Path) -> Result<ArtifactSize, String> {
+const DEFAULT_OUTPUT_DIR: &str = "dist";
+const RUST_OUTPUT_DIR: &str = "target";
+
+// The directory to measure after the build, relative to the project: the one the caller gave,
+// otherwise target for Rust and dist for every other runtime
+pub fn output_dir(build: &BuildRequest, runtime: Option<&str>) -> String {
+    match build
+        .output_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|dir| !dir.is_empty())
+    {
+        Some(dir) => dir.to_string(),
+        None if runtime == Some("rust") => RUST_OUTPUT_DIR.to_string(),
+        None => DEFAULT_OUTPUT_DIR.to_string(),
+    }
+}
+
+// Same path without "." parts, so it can be compared with the paths found while walking
+fn normalized(path: &str) -> PathBuf {
+    Path::new(path)
+        .components()
+        .filter(|component| !matches!(component, Component::CurDir))
+        .collect()
+}
+
+// Measures the project after its build. Files inside the build output directory are the build
+// artifact, node_modules and other build folders are excluded, everything else is source.
+pub fn measure(path: &Path, output_dir: &str) -> Result<ArtifactSize, String> {
+    let output = normalized(output_dir);
+
+    if !path.join(&output).is_dir() {
+        return Err(format!(
+            "The build output directory was not found after the build: {output_dir}"
+        ));
+    }
+
     let mut source_bytes = 0;
     let mut source_file_count = 0;
 
@@ -25,16 +61,14 @@ pub fn measure(path: &Path) -> Result<ArtifactSize, String> {
 
         let relative = entry.path().strip_prefix(path).unwrap_or(entry.path());
 
-        let is_build = relative.components().any(|component| {
+        let is_build = relative.starts_with(&output);
+
+        let is_excluded = relative.components().any(|component| {
             matches!(
                 component.as_os_str().to_str(),
-                Some("target") | Some("dist") | Some("build")
+                Some("node_modules") | Some("target") | Some("dist") | Some("build")
             )
         });
-
-        let is_excluded = relative
-            .components()
-            .any(|component| matches!(component.as_os_str().to_str(), Some("node_modules")));
 
         if is_build {
             build_bytes += size;

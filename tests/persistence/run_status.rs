@@ -137,15 +137,15 @@ async fn a_run_stopped_at_each_stage_saves_lists_opens_and_compares() {
     // (stopped stage, steps that finished before it)
     let cases: [(&str, &[&str]); 5] = [
         ("discovery", &[]),
-        ("build", &["discovery", "artifact_size"]),
-        ("startup", &["discovery", "artifact_size", "build"]),
+        ("build", &["discovery"]),
+        ("startup", &["discovery", "build", "artifact_size"]),
         (
             "workload",
-            &["discovery", "artifact_size", "build", "startup"],
+            &["discovery", "build", "artifact_size", "startup"],
         ),
         (
             "workspaces",
-            &["discovery", "artifact_size", "build", "startup", "workload"],
+            &["discovery", "build", "artifact_size", "startup", "workload"],
         ),
     ];
 

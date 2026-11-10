@@ -113,6 +113,7 @@ async fn a_summary_carries_the_stored_metrics() {
     assert_eq!(row.memory_peak_bytes, Some(73_400_320));
     assert_eq!(row.cpu_average_percent, Some(12.4));
     assert_eq!(row.requests_per_second, Some(121.45));
+    assert_eq!(row.total_requests, Some(1000));
     assert_eq!(row.p95_ms, Some(8.7));
 
     database.teardown().await;

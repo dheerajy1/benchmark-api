@@ -67,6 +67,7 @@ pub struct SummaryRow {
     pub memory_peak_bytes: Option<i64>,
     pub cpu_average_percent: Option<f64>,
     pub requests_per_second: Option<f64>,
+    pub total_requests: Option<i64>,
     pub p95_ms: Option<f64>,
 }
 
@@ -82,6 +83,8 @@ pub struct TrendRow {
     pub memory_peak_bytes: Option<i64>,
     pub cpu_average_percent: Option<f64>,
     pub requests_per_second: Option<f64>,
+    // The requests the workload sent, set under the same rule as the HTTP numbers
+    pub total_requests: Option<i64>,
     pub p95_ms: Option<f64>,
 }
 

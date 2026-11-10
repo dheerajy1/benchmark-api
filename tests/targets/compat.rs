@@ -25,9 +25,15 @@ async fn raw_rejections_match_the_original_extractor() {
         ("{", Some("application/json")),
         ("{}", Some("application/json")),
         (r#"{"path": 5}"#, Some("application/json")),
-        (r#"{"path": "/x", "startup": 7}"#, Some("application/json")),
-        (r#"{"path": "/x"}"#, None),
-        (r#"{"path": "/x"}"#, Some("text/plain")),
+        (
+            r#"{"path": "/x", "build": {"command": "true"}, "startup": 7}"#,
+            Some("application/json"),
+        ),
+        (r#"{"path": "/x", "build": {"command": "true"}}"#, None),
+        (
+            r#"{"path": "/x", "build": {"command": "true"}}"#,
+            Some("text/plain"),
+        ),
         ("", Some("application/json")),
     ];
 
@@ -55,7 +61,7 @@ async fn raw_rejections_match_the_original_extractor() {
 #[tokio::test]
 async fn a_valid_raw_request_is_still_accepted_with_the_open_policy() {
     let dir = tempfile::tempdir().unwrap();
-    let body = json!({ "path": dir.path().display().to_string() }).to_string();
+    let body = json!({ "path": dir.path().display().to_string(), "build": { "command": "true", "output_dir": "." } }).to_string();
     let (app, _) = router(RunPolicy::open());
 
     let (status, _) = send(

@@ -234,7 +234,7 @@ async fn the_run_id_exists_before_the_run_finishes_and_the_first_event_is_run_ac
     assert_eq!(replay.events[0].data["capabilities"]["cancel"], json!(true));
     assert_eq!(
         replay.events[0].data["plan"],
-        json!({ "startup": false, "workload": null, "workspaces": 0 })
+        json!({ "startup": false, "workload": null, "workspaces": 0, "cleanup": false })
     );
 
     gate.store(true, Ordering::SeqCst);
@@ -463,7 +463,7 @@ async fn a_real_run_without_startup_reports_its_stages_in_order() {
 
     assert_eq!(
         started,
-        vec!["discovery", "artifact_size", "build", "startup", "saving"]
+        vec!["discovery", "build", "artifact_size", "startup", "saving"]
     );
 
     let metrics: Vec<&str> = replay
@@ -475,7 +475,7 @@ async fn a_real_run_without_startup_reports_its_stages_in_order() {
 
     assert_eq!(
         metrics,
-        vec!["discovery", "artifact_size", "build_time", "startup_time"]
+        vec!["discovery", "build_time", "artifact_size", "startup_time"]
     );
 
     let skipped: Vec<&Value> = replay

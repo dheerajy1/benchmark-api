@@ -49,7 +49,7 @@ pub fn test_env() -> Env {
 
 // The smallest valid request: a directory, no startup and no workload
 pub fn request_for(dir: &Path) -> BenchmarkRequest {
-    serde_json::from_value(json!({ "path": dir.display().to_string() })).unwrap()
+    serde_json::from_value(json!({ "path": dir.display().to_string(), "build": { "command": "true", "output_dir": "." } })).unwrap()
 }
 
 pub fn post_json(body: &str) -> Request<Body> {
@@ -225,6 +225,7 @@ pub fn long_benchmark_body(dir: &Path, port: u16, seconds: u64) -> String {
 
     json!({
         "path": dir.display().to_string(),
+        "build": { "command": "true", "output_dir": "." },
         "startup": {
             "command": { "program": "bun", "args": ["-e", script] },
             "readiness": {

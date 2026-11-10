@@ -7,9 +7,34 @@ use super::{
     workspace::{config::WorkspaceRequest, result::WorkspaceResult},
 };
 
+// How the project is built. The caller always gives the command, nothing is detected.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct BuildRequest {
+    // One command line, split into words the way a shell would without running a shell
+    pub command: String,
+    // Relative to the project path. Left out or empty, the runtime default is measured.
+    #[serde(default)]
+    pub output_dir: Option<String>,
+}
+
+// Optional command that runs in the project path when the run is over, whatever the outcome,
+// for example to remove the images and containers a run left behind
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct CleanupRequest {
+    // One command line, split into words the way a shell would without running a shell.
+    // Empty means no cleanup.
+    pub command: String,
+    // Left out, the default applies
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct BenchmarkRequest {
     pub path: PathBuf,
+    pub build: BuildRequest,
+    #[serde(default)]
+    pub cleanup: Option<CleanupRequest>,
     #[serde(default)]
     pub startup: Option<StartupRequest>,
     #[serde(default)]
@@ -124,7 +149,7 @@ pub struct StartupReadiness {
     pub expected_status: u16,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuildCommand {
     pub program: String,
     pub args: Vec<String>,

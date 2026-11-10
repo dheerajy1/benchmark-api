@@ -16,8 +16,7 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use super::support::{
-    free_port, kinds, request_for, require_bun, test_env, wait_until, wait_until_slot_free,
-    wait_until_terminal,
+    free_port, kinds, require_bun, test_env, wait_until, wait_until_slot_free, wait_until_terminal,
 };
 use crate::fake_repository::InMemoryRepository;
 
@@ -51,27 +50,22 @@ fn real_live(repository: Arc<InMemoryRepository>) -> LiveRuns {
     )
 }
 
-// A bun project whose build starts two long sleeps
-fn build_project(marker: &str) -> TempDir {
-    let dir = TempDir::new().unwrap();
-
-    fs::write(dir.path().join("bun.lock"), "").unwrap();
-    fs::write(
-        dir.path().join("package.json"),
-        json!({
-            "name": "cancel-fixture",
-            "scripts": { "build": format!("sh -c \"sleep {marker} & sleep {marker} & wait\"") }
-        })
-        .to_string(),
-    )
-    .unwrap();
-
-    dir
+// A request whose build starts two long sleeps
+fn build_request(dir: &Path, marker: &str) -> BenchmarkRequest {
+    serde_json::from_value(json!({
+        "path": dir.display().to_string(),
+        "build": {
+            "command": format!("sh -c \"sleep {marker} & sleep {marker} & wait\""),
+            "output_dir": "."
+        }
+    }))
+    .unwrap()
 }
 
 fn request_with(dir: &Path, port: u16, shell: &str, workload: Value) -> BenchmarkRequest {
     serde_json::from_value(json!({
         "path": dir.display().to_string(),
+        "build": { "command": "true", "output_dir": "." },
         "startup": {
             "command": { "program": "sh", "args": ["-c", shell] },
             "readiness": {
@@ -122,11 +116,13 @@ async fn cancelling_a_build_stops_it_and_every_process_it_started() {
     require_bun();
 
     let marker = "9981.5";
-    let dir = build_project(marker);
+    let dir = TempDir::new().unwrap();
     let repository = Arc::new(InMemoryRepository::default());
     let live = real_live(repository.clone());
 
-    let accepted = live.submit(request_for(dir.path())).expect("accepted");
+    let accepted = live
+        .submit(build_request(dir.path(), marker))
+        .expect("accepted");
 
     wait_until(
         || stage_started(&accepted.entry, "build"),
@@ -321,11 +317,13 @@ async fn a_cancel_before_anything_started_leaves_nothing_running() {
     require_bun();
 
     let marker = "9985.5";
-    let dir = build_project(marker);
+    let dir = TempDir::new().unwrap();
     let repository = Arc::new(InMemoryRepository::default());
     let live = real_live(repository.clone());
 
-    let accepted = live.submit(request_for(dir.path())).expect("accepted");
+    let accepted = live
+        .submit(build_request(dir.path(), marker))
+        .expect("accepted");
 
     accepted.entry.request_cancel();
 

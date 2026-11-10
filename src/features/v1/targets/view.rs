@@ -20,10 +20,17 @@ pub struct TargetView {
     pub id: String,
     pub name: String,
     pub path: String,
+    pub build: BuildView,
     pub startup: Option<StartupView>,
     pub workload: Option<WorkloadView>,
     // Variable names only, never a pasted value
     pub workspaces: Vec<WorkspaceConfiguration>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BuildView {
+    pub command: String,
+    pub output_dir: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -79,6 +86,10 @@ impl TargetView {
             id: entry.id.clone(),
             name: entry.name.clone(),
             path: entry.path.display().to_string(),
+            build: BuildView {
+                command: entry.build.command.clone(),
+                output_dir: entry.build.output_dir.clone(),
+            },
             startup: entry.startup.as_ref().map(StartupView::from_spec),
             workload: entry.workload.as_ref().map(WorkloadView::from_spec),
             workspaces: entry

@@ -28,6 +28,7 @@ fn workload() -> Value {
 fn request(startup: Value, workload: Value) -> BenchmarkRequest {
     serde_json::from_value(json!({
         "path": "/tmp/project",
+        "build": { "command": "bun run build" },
         "startup": startup,
         "workload": workload
     }))
@@ -39,9 +40,12 @@ fn error_of(request: &BenchmarkRequest) -> String {
 }
 
 #[test]
-fn accepts_path_only_request() {
-    let request: BenchmarkRequest =
-        serde_json::from_value(json!({ "path": "/tmp/project" })).unwrap();
+fn accepts_path_and_build_only_request() {
+    let request: BenchmarkRequest = serde_json::from_value(json!({
+        "path": "/tmp/project",
+        "build": { "command": "bun run build" }
+    }))
+    .unwrap();
 
     assert!(validation::validate(&request).is_ok());
 }
@@ -286,4 +290,43 @@ fn duration_mode_keeps_the_other_workload_rules() {
     no_slash["path"] = json!("health");
 
     assert!(error_of(&request(Value::Null, no_slash)).contains("path"));
+}
+
+fn with_build(build: Value) -> BenchmarkRequest {
+    serde_json::from_value(json!({ "path": "/tmp/project", "build": build })).unwrap()
+}
+
+#[test]
+fn rejects_a_request_without_a_build() {
+    let result = serde_json::from_value::<BenchmarkRequest>(json!({ "path": "/tmp/project" }));
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn rejects_an_empty_build_command() {
+    let error = error_of(&with_build(json!({ "command": "   " })));
+
+    assert!(error.contains("build.command"), "{error}");
+}
+
+#[test]
+fn accepts_a_build_command_with_arguments_and_an_output_folder() {
+    let request = with_build(json!({
+        "command": "cargo xtask build --release",
+        "output_dir": "target/release"
+    }));
+
+    assert!(validation::validate(&request).is_ok());
+}
+
+#[test]
+fn rejects_an_output_folder_outside_the_project() {
+    for folder in ["/etc", "../outside", "a/../../b"] {
+        let error = error_of(&with_build(
+            json!({ "command": "true", "output_dir": folder }),
+        ));
+
+        assert!(error.contains("build.output_dir"), "{folder}: {error}");
+    }
 }

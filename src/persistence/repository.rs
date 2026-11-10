@@ -74,6 +74,8 @@ pub enum ConfigurationLookup {
 pub struct StoredConfigurationRun {
     pub run_id: Uuid,
     pub created_at: DateTime<Utc>,
+    // done, failed or cancelled
+    pub status: String,
     // The run's path: from its configuration when recorded, otherwise from the run row
     pub path: String,
     // The start command and readiness: from the configuration when recorded, otherwise from

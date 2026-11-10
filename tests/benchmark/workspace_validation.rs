@@ -26,7 +26,10 @@ fn docker_only() -> Value {
 }
 
 fn request(workspaces: Value) -> BenchmarkRequest {
-    serde_json::from_value(json!({ "path": "/tmp/project", "workspaces": workspaces })).unwrap()
+    serde_json::from_value(
+        json!({ "path": "/tmp/project", "build": { "command": "true" }, "workspaces": workspaces }),
+    )
+    .unwrap()
 }
 
 fn error_of(workspaces: Value) -> String {
@@ -49,7 +52,8 @@ fn with(mut workspace: Value, field: &str, value: Value) -> Value {
 #[test]
 fn a_request_without_workspaces_is_unchanged() {
     let request: BenchmarkRequest =
-        serde_json::from_value(json!({ "path": "/tmp/project" })).unwrap();
+        serde_json::from_value(json!({ "path": "/tmp/project", "build": { "command": "true" } }))
+            .unwrap();
 
     assert!(request.workspaces.is_empty());
     assert!(validation::validate(&request).is_ok());

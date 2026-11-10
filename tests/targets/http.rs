@@ -8,7 +8,7 @@ use super::support::{get_path, policy, post_json, router, send, wait_for_seen};
 async fn a_raw_request_is_refused_when_custom_runs_are_disabled() {
     let dir = tempdir().unwrap();
     let (app, executor) = router(policy(false, dir.path()));
-    let body = json!({ "path": dir.path().display().to_string() }).to_string();
+    let body = json!({ "path": dir.path().display().to_string(), "build": { "command": "true", "output_dir": "." } }).to_string();
 
     let (status, value) = send(app, post_json("/api/v1/live-runs", &body)).await;
 
@@ -25,7 +25,7 @@ async fn a_raw_request_is_refused_when_custom_runs_are_disabled() {
 async fn a_raw_request_is_accepted_and_recorded_as_custom_when_enabled() {
     let dir = tempdir().unwrap();
     let (app, executor) = router(policy(true, dir.path()));
-    let body = json!({ "path": dir.path().display().to_string() }).to_string();
+    let body = json!({ "path": dir.path().display().to_string(), "build": { "command": "true", "output_dir": "." } }).to_string();
 
     let (status, accepted) = send(app.clone(), post_json("/api/v1/live-runs", &body)).await;
     assert_eq!(status, StatusCode::ACCEPTED);

@@ -5,7 +5,5 @@ edition = "2024"
 publish = false
 
 [dependencies]
+benchmark-api = { path = ".." }
 dotenvy = "0.15"
-serde = { version = "1.0", features = ["derive"] }
-validator = { version = "0.21", features = ["derive"] }
-envy = "0.4"

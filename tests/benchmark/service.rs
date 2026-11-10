@@ -2,7 +2,9 @@ use std::fs::{self, File};
 
 use benchmark_api::config::env::Env;
 use benchmark_api::features::v1::benchmark::{
-    error::BenchmarkError, model::BenchmarkRequest, service,
+    error::BenchmarkError,
+    model::{BenchmarkRequest, BuildRequest},
+    service,
 };
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -40,6 +42,11 @@ fn runs_benchmark_and_assembles_result() {
 
     let request = BenchmarkRequest {
         path: temp_dir.path().to_path_buf(),
+        build: BuildRequest {
+            command: "true".to_string(),
+            output_dir: Some("target".to_string()),
+        },
+        cleanup: None,
         startup: None,
         workload: None,
         workspaces: Vec::new(),
@@ -127,6 +134,7 @@ fn rejects_invalid_workload_before_running_anything() {
     let temp_dir = TempDir::new().unwrap();
 
     let request: BenchmarkRequest = serde_json::from_value(serde_json::json!({
+        "build": { "command": "true" },
         "path": temp_dir.path().display().to_string(),
         "workload": {
             "method": "GET",
@@ -146,6 +154,7 @@ fn rejects_invalid_workload_before_running_anything() {
 #[test]
 fn missing_path_is_reported_as_an_invalid_path() {
     let request: BenchmarkRequest = serde_json::from_value(serde_json::json!({
+        "build": { "command": "true" },
         "path": "/definitely/not/a/real/path"
     }))
     .unwrap();
@@ -164,6 +173,7 @@ fn file_path_is_reported_as_an_invalid_path() {
     std::fs::write(&file, "x").unwrap();
 
     let request: BenchmarkRequest = serde_json::from_value(serde_json::json!({
+        "build": { "command": "true" },
         "path": file.display().to_string()
     }))
     .unwrap();
@@ -179,6 +189,7 @@ fn workload_without_a_runnable_target_yields_null_runtime_metrics() {
     let temp_dir = TempDir::new().unwrap();
 
     let request: BenchmarkRequest = serde_json::from_value(serde_json::json!({
+        "build": { "command": "true", "output_dir": "." },
         "path": temp_dir.path().display().to_string(),
         "workload": {
             "method": "GET",

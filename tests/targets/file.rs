@@ -33,7 +33,7 @@ fn a_missing_environment_variable_is_named_without_a_value() {
 #[test]
 fn an_unknown_key_is_rejected_with_its_position_only() {
     let dir = tempdir().unwrap();
-    let text = r#"{ "targets": { "demo": { "name": "Demo", "path": "/tmp", "unexpected": 1 } } }"#;
+    let text = r#"{ "targets": { "demo": { "name": "Demo", "path": "/tmp", "build": { "command": "true" }, "unexpected": 1 } } }"#;
     let file = write_file(dir.path(), "targets.json", text);
 
     let error = TargetCatalog::load(&file, &lookup(&[])).expect_err("must fail");
@@ -44,7 +44,7 @@ fn an_unknown_key_is_rejected_with_its_position_only() {
 #[test]
 fn an_invalid_target_id_is_rejected() {
     let dir = tempdir().unwrap();
-    let text = r#"{ "targets": { "Bad_ID": { "name": "Demo", "path": "/tmp" } } }"#;
+    let text = r#"{ "targets": { "Bad_ID": { "name": "Demo", "path": "/tmp", "build": { "command": "true" } } } }"#;
     let file = write_file(dir.path(), "targets.json", text);
 
     let error = TargetCatalog::load(&file, &lookup(&[])).expect_err("must fail");
@@ -55,7 +55,7 @@ fn an_invalid_target_id_is_rejected() {
 #[test]
 fn a_relative_path_is_rejected() {
     let dir = tempdir().unwrap();
-    let text = r#"{ "targets": { "demo": { "name": "Demo", "path": "relative/dir" } } }"#;
+    let text = r#"{ "targets": { "demo": { "name": "Demo", "path": "relative/dir", "build": { "command": "true" } } } }"#;
     let file = write_file(dir.path(), "targets.json", text);
 
     let error = TargetCatalog::load(&file, &lookup(&[])).expect_err("must fail");
@@ -67,7 +67,7 @@ fn a_relative_path_is_rejected() {
 fn a_workload_needs_exactly_one_mode() {
     let dir = tempdir().unwrap();
     let text = format!(
-        r#"{{ "targets": {{ "demo": {{ "name": "Demo", "path": "{}",
+        r#"{{ "targets": {{ "demo": {{ "name": "Demo", "path": "{}", "build": {{ "command": "true" }},
             "workload": {{ "method": "GET", "path": "/", "requests": 5,
                            "duration_seconds": 5, "concurrency": 1 }} }} }} }}"#,
         dir.path().display()
@@ -83,7 +83,7 @@ fn a_workload_needs_exactly_one_mode() {
 fn an_invalid_readiness_port_is_rejected_by_the_shared_validation() {
     let dir = tempdir().unwrap();
     let text = format!(
-        r#"{{ "targets": {{ "demo": {{ "name": "Demo", "path": "{}",
+        r#"{{ "targets": {{ "demo": {{ "name": "Demo", "path": "{}", "build": {{ "command": "true" }},
             "startup": {{ "command": {{ "program": "bun" }},
                           "readiness": {{ "port": 0, "path": "/health", "expected_status": 200 }} }} }} }} }}"#,
         dir.path().display()

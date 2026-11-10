@@ -89,7 +89,10 @@ fn fake(pid: u32) -> FakeDocker {
 }
 
 fn request(directory: &Path, workspaces: Value) -> BenchmarkRequest {
-    serde_json::from_value(json!({ "path": directory, "workspaces": workspaces })).unwrap()
+    serde_json::from_value(
+        json!({ "path": directory, "build": { "command": "true" }, "workspaces": workspaces }),
+    )
+    .unwrap()
 }
 
 fn project() -> TempDir {

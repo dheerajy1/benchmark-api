@@ -159,6 +159,7 @@ fn to_summary(row: SummaryRow) -> Result<BenchmarkSummary, HistoryError> {
             memory_peak_bytes: non_negative("memory_peak_bytes", row.memory_peak_bytes)?,
             cpu_average_percent: row.cpu_average_percent,
             requests_per_second: row.requests_per_second,
+            total_requests: non_negative("total_requests", row.total_requests)?,
             p95_ms: row.p95_ms,
         },
     })

@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::{control::RunControl, event::kind, registry::RunEntry};
+use crate::features::v1::benchmark::cleanup::CleanupStep;
 use crate::{features::v1::benchmark::error::BenchmarkError, persistence::outcome::StageRecord};
 
 // The steps of a run, in the order they happen
@@ -19,6 +20,7 @@ pub enum Stage {
     Baseline,
     Workload,
     Workspaces,
+    Cleanup,
     Saving,
 }
 
@@ -32,6 +34,7 @@ impl Stage {
             Stage::Baseline => "baseline",
             Stage::Workload => "workload",
             Stage::Workspaces => "workspaces",
+            Stage::Cleanup => "cleanup",
             Stage::Saving => "saving",
         }
     }
@@ -63,6 +66,7 @@ pub mod skip {
     pub const NO_START_COMMAND: &str = "no_start_command";
     pub const STARTUP_NOT_SUCCESSFUL: &str = "startup_not_successful";
     pub const TARGET_EXITED: &str = "target_exited";
+    pub const BUILD_NOT_SUCCESSFUL: &str = "build_not_successful";
 }
 
 // Receives the progress of a run. It is called from the blocking execution thread,
@@ -262,6 +266,39 @@ impl RunContext {
         self.sink.emit(
             kind::MEASUREMENT_AVAILABLE,
             json!({ "metric": metric.as_str(), "value": value }),
+        );
+    }
+
+    // One cleanup command of the cleanup stage. `phase` is started or finished, `status` and
+    // `message` only come with finished. A failed cleanup never fails the run.
+    pub fn cleanup_step(
+        &self,
+        step: &CleanupStep,
+        phase: &str,
+        status: Option<&str>,
+        duration_ms: Option<u64>,
+        message: Option<&str>,
+    ) {
+        let key = step.stage_key();
+
+        match phase {
+            "started" => self.stages.started(&key),
+            "finished" => self
+                .stages
+                .completed(&key, status.unwrap_or("success"), duration_ms),
+            _ => {}
+        }
+
+        self.sink.emit(
+            kind::CLEANUP_STEP,
+            json!({
+                "step": step.step,
+                "workspace": step.workspace,
+                "phase": phase,
+                "status": status,
+                "duration_ms": duration_ms,
+                "message": message,
+            }),
         );
     }
 

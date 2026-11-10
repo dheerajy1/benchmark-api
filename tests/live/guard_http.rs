@@ -25,7 +25,8 @@ fn assert_error_shape(body: &Value, http_code: u64, code: &str) {
 }
 
 fn valid_body(dir: &std::path::Path) -> String {
-    json!({ "path": dir.display().to_string() }).to_string()
+    json!({ "path": dir.display().to_string(), "build": { "command": "true", "output_dir": "." } })
+        .to_string()
 }
 
 #[tokio::test]
@@ -63,7 +64,7 @@ async fn an_invalid_request_is_still_a_400_while_the_slot_is_busy() {
 
     let (status, body) = send(
         router,
-        post_json(r#"{"path":"/definitely/not/a/real/directory"}"#),
+        post_json(r#"{"path":"/definitely/not/a/real/directory","build":{"command":"true"}}"#),
     )
     .await;
 
@@ -79,7 +80,7 @@ async fn a_request_with_a_missing_path_leaves_the_slot_free() {
 
     let (status, _body) = send(
         router,
-        post_json(r#"{"path":"/definitely/not/a/real/directory"}"#),
+        post_json(r#"{"path":"/definitely/not/a/real/directory","build":{"command":"true"}}"#),
     )
     .await;
 

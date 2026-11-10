@@ -239,6 +239,10 @@ fn summary_of(result: &BenchmarkResult) -> SummaryRow {
             .http_latency
             .as_ref()
             .map(|latency| latency.requests_per_second),
+        total_requests: metrics
+            .http_latency
+            .as_ref()
+            .map(|latency| latency.total_requests as i64),
         p95_ms: metrics
             .http_latency
             .as_ref()
@@ -373,6 +377,7 @@ fn trend_of(result: &BenchmarkResult) -> TrendRow {
             .map(|memory| memory.peak.rss_bytes as i64),
         cpu_average_percent: metrics.cpu.as_ref().map(|cpu| cpu.average_percent),
         requests_per_second: comparable_http.map(|latency| latency.requests_per_second),
+        total_requests: comparable_http.map(|latency| latency.total_requests as i64),
         p95_ms: comparable_http.and_then(|latency| latency.p95_ms),
     }
 }

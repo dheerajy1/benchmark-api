@@ -34,6 +34,8 @@ pub struct ConfigurationDetail {
 pub struct ConfigurationListItem {
     pub run_id: String,
     pub created_at: String,
+    // done, failed or cancelled
+    pub status: String,
     pub path: String,
     pub startup: Option<StartupSummary>,
     pub recorded: bool,
@@ -45,6 +47,7 @@ impl From<StoredConfigurationRun> for ConfigurationListItem {
         Self {
             run_id: run.run_id.to_string(),
             created_at: run.created_at.to_rfc3339(),
+            status: run.status,
             path: run.path,
             startup: run.startup,
             recorded: run.configuration.is_some(),

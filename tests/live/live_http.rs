@@ -35,7 +35,7 @@ fn router_with(executor: Arc<dyn RunExecutor>) -> (Router, LiveRuns) {
 }
 
 fn valid_body(dir: &TempDir) -> String {
-    json!({ "path": dir.path().display().to_string() }).to_string()
+    json!({ "path": dir.path().display().to_string(), "build": { "command": "true", "output_dir": "." } }).to_string()
 }
 
 fn run_id_of(body: &Value) -> Uuid {
@@ -173,7 +173,7 @@ async fn an_invalid_submission_is_a_400_and_takes_no_slot() {
         router.clone(),
         post_to(
             "/api/v1/live-runs",
-            r#"{"path":"/definitely/not/a/real/directory"}"#,
+            r#"{"path":"/definitely/not/a/real/directory","build":{"command":"true"}}"#,
         ),
     )
     .await;

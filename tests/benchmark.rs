@@ -2,6 +2,7 @@ mod benchmark {
     pub mod api;
     pub mod artifact_size;
     pub mod build_time;
+    pub mod cleanup;
     pub mod comparison_api;
     pub mod comparison_metrics;
     pub mod comparison_sample;

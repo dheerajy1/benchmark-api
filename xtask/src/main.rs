@@ -1,97 +1,134 @@
-use serde::Deserialize;
+mod quiet;
+
 use std::env;
-use std::process::Command;
-use validator::Validate;
+use std::process::{Command, exit};
 
-#[derive(Clone, Debug, Deserialize, Validate)]
-pub struct ApiEnvSchema {
-    #[validate(range(min = 1, message = "APP_PORT must be a valid port number"))]
-    pub app_port: u16,
+use benchmark_api::config::env::Env;
 
-    #[validate(length(
-        min = 1,
-        max = 50,
-        message = "APP_HEALTH_CLIENT_ID must be 1-50 characters"
-    ))]
-    pub app_health_client_id: String,
-
-    #[validate(length(
-        min = 1,
-        max = 50,
-        message = "APP_HEALTH_CLIENT_SECRET must be 1-50 characters"
-    ))]
-    pub app_health_client_secret: String,
-
-    #[validate(length(min = 1, message = "DATABASE_URL must not be empty"))]
-    pub database_url: String,
-}
+use quiet::Show;
 
 fn main() {
     let task = env::args().nth(1).unwrap_or_else(|| {
-        eprintln!("Usage: cargo <dev|start>");
-        std::process::exit(1);
+        eprintln!("Usage: cargo <dev|start|build|verify>");
+        exit(1);
     });
 
     match task.as_str() {
         "dev" => run_server("development", false),
         "start" => run_server("production", true),
         "build" => run_build(),
+        "verify" => run_verify(),
         _ => {
-            eprintln!("Unknown task: {task}. Use dev | start");
-            std::process::exit(1);
+            eprintln!("Unknown task: {task}");
+            exit(1);
         }
     }
 }
 
-fn run_server(profile: &str, release: bool) {
-    let env_file = format!(".env.{}", profile);
+fn load_env(profile: &str) -> Env {
+    let env_file = format!(".env.{profile}");
 
-    // 1. Load the corresponding environment file
     dotenvy::from_filename(&env_file)
-        .unwrap_or_else(|_| panic!("Failed to load environment file: {}", env_file));
+        .unwrap_or_else(|_| panic!("Failed to load environment file: {env_file}"));
 
-    // 2. Validate environment schema
-    let config: ApiEnvSchema = envy::from_env().unwrap_or_else(|err| {
-        panic!(
-            "Failed to parse environment variables from {}: {}",
-            env_file, err
-        );
-    });
+    Env::load().unwrap_or_else(|error| {
+        eprintln!("[env] Validation failed for {env_file}: {error}");
+        exit(1);
+    })
+}
 
-    config.validate().unwrap_or_else(|err| {
-        panic!("Environment validation failed for {}: {}", env_file, err);
-    });
+fn run_server(profile: &str, release: bool) {
+    let env = load_env(profile);
 
     println!(
-        "-> Loaded {} successfully (Port: {}, Mode: {})",
-        env_file,
-        config.app_port,
-        if release { "production" } else { "development" }
+        "-> Loaded .env.{profile} (Port: {}, Mode: {profile})",
+        env.app_port
     );
 
-    // 3. Build and run the benchmark-api package
-    let mut cmd = Command::new("cargo");
-    cmd.arg("run").arg("--package").arg("benchmark-api");
+    build_quiet(&package_args("build", "benchmark-api", release));
 
-    if release {
-        cmd.arg("--release");
-    }
+    let mut cmd = Command::new("cargo");
+    cmd.args(package_args("run", "benchmark-api", release));
+    cmd.arg("--quiet");
 
     let status = cmd
         .status()
         .expect("Failed to execute cargo run for benchmark-api");
 
-    std::process::exit(status.code().unwrap_or(1));
+    exit(status.code().unwrap_or(1));
 }
 
 fn run_build() {
-    let env_file = ".env.production";
-    dotenvy::from_filename(env_file).expect("Failed to load .env.production");
+    load_env("production");
 
-    let status = Command::new("cargo")
-        .args(["build", "--release", "--package", "benchmark-api"])
-        .status()
-        .expect("Failed to execute cargo build");
+    println!("-> Validated .env.production");
 
-    std::process::exit(status.code().unwrap_or(1));
+    build_quiet(&package_args("build", "benchmark-api", true));
+}
+
+fn package_args(command: &str, package: &str, release: bool) -> Vec<String> {
+    let mut args = vec![
+        command.to_string(),
+        "--package".to_string(),
+        package.to_string(),
+    ];
+
+    if release {
+        args.push("--release".to_string());
+    }
+
+    args
+}
+
+fn run_step(args: &[String], show: Show) {
+    let mut cmd = Command::new("cargo");
+    cmd.args(args);
+
+    match quiet::run(&cmd, show) {
+        Ok(true) => {}
+        Ok(false) => exit(1),
+        Err(error) => {
+            eprintln!("Failed to run cargo: {error}");
+            exit(1);
+        }
+    }
+}
+
+fn build_quiet(args: &[String]) {
+    run_step(args, Show::All);
+}
+
+fn run_verify() {
+    let steps: [(&str, Vec<&str>, Show); 4] = [
+        ("cargo fmt", vec!["fmt"], Show::All),
+        (
+            "cargo check",
+            vec!["check", "--workspace", "--all-targets"],
+            Show::All,
+        ),
+        (
+            "cargo clippy",
+            vec![
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--locked",
+                "--",
+                "-D",
+                "warnings",
+            ],
+            Show::All,
+        ),
+        ("cargo test", vec!["test", "--workspace"], Show::TestSummary),
+    ];
+
+    for (label, args, show) in steps {
+        println!("-> {label}");
+
+        let args: Vec<String> = args.into_iter().map(str::to_string).collect();
+
+        run_step(&args, show);
+    }
+
+    println!("-> verify passed");
 }

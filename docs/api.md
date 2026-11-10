@@ -13,6 +13,7 @@ The request body is the one described here. The stored result of the run is read
 ```json
 {
   "path": "/home/me/projects/my-api",
+  "build": { "command": "bun run build", "output_dir": "dist" },
   "startup": {
     "command": { "program": "bun", "args": ["run", "start"] },
     "readiness": {
@@ -27,9 +28,23 @@ The request body is the one described here. The stored result of the run is read
 }
 ```
 
-Only `path` is required. `workload` takes `requests` or `duration_seconds`, not both.
+`path` and `build.command` are required. Nothing is detected: the build runs exactly the command given (split into words like a shell would, without running a shell), then the artifact size is measured. `build.output_dir` is optional and relative to `path`. Left out, `target` is measured for a Rust project and `dist` for every other runtime. A build that fails skips the artifact size, and an output directory that does not exist after a successful build fails the run. `workload` takes `requests` or `duration_seconds`, not both.
 
-A raw request is refused with `403 FORBIDDEN` unless the server was started with `ALLOW_CUSTOM_RUNS=true`. A body that names a saved target (`{ "target_id": "...", "workload": { ... } }`) is handled by the saved-target rules in [saved-targets.md](saved-targets.md). Raw requests that are valid JSON but malformed are answered exactly as before this feature, with the same status, code, message and error text.
+### Cleanup (optional)
+
+```json
+"cleanup": { "command": "docker system prune -af", "timeout_seconds": 120 }
+```
+
+and, inside a workspace, `docker.cleanup` with the same two fields:
+
+```json
+"docker": { "enabled": true, "...": "...", "cleanup": { "command": "docker rmi sub:latest", "timeout_seconds": 60 } }
+```
+
+Both are optional commands that run in `path` at the very end of the run, whatever the outcome (done, failed or cancelled), for example to remove the images and containers a run left behind. They are split into words like the build command and run without a shell, one after the other: the build's `cleanup` first, then each Docker workspace's `docker.cleanup`. An empty or missing command is skipped, and a `docker.cleanup` of a workspace whose Docker mode is off is ignored. `timeout_seconds` is optional, from 1 to 3600, default 120. A cancel request does not stop a cleanup.
+
+Together they are one stage, `cleanup`, after the last measurement and before `saving`, with one sub step for each command (`cleanup:build`, `cleanup:docker:<workspace>`). A cleanup that fails or times out is shown on its step and the `cleanup` stage ends `failed`, but the run keeps the status it had: a run that worked is still `done`.
 
 ### Workspaces (optional)
 
@@ -154,6 +169,7 @@ Filters are applied first, then the cursor, then the limit, all in SQL.
           "memory_peak_bytes": 73400320,
           "cpu_average_percent": 12.4,
           "requests_per_second": 121.45,
+          "total_requests": 1000,
           "p95_ms": 8.7
         }
       }
@@ -284,6 +300,7 @@ Other parameters are ignored.
         "memory_peak_bytes": 73400320,
         "cpu_average_percent": 12.4,
         "requests_per_second": 121.45,
+        "total_requests": 1000,
         "p95_ms": 8.7
       }
     ]

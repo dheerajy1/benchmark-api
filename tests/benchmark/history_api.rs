@@ -87,6 +87,7 @@ fn summary(id: Uuid, target_path: &str, runtime: Option<&str>) -> SummaryRow {
         memory_peak_bytes: Some(2048),
         cpu_average_percent: Some(10.5),
         requests_per_second: Some(100.25),
+        total_requests: Some(1000),
         p95_ms: Some(8.7),
     }
 }
@@ -167,6 +168,7 @@ async fn multiple_runs_are_listed_newest_first_as_summaries() {
             "memory_peak_bytes": 2048,
             "cpu_average_percent": 10.5,
             "requests_per_second": 100.25,
+            "total_requests": 1000,
             "p95_ms": 8.7
         })
     );
@@ -456,6 +458,7 @@ async fn nullable_runtime_and_metrics_are_reported_as_null() {
     row.memory_peak_bytes = None;
     row.cpu_average_percent = None;
     row.requests_per_second = None;
+    row.total_requests = None;
     row.p95_ms = None;
 
     repository.seed_summary(row);
@@ -477,6 +480,7 @@ async fn nullable_runtime_and_metrics_are_reported_as_null() {
             "memory_peak_bytes": null,
             "cpu_average_percent": null,
             "requests_per_second": null,
+            "total_requests": null,
             "p95_ms": null
         })
     );

@@ -57,6 +57,7 @@ fn assert_error_shape(body: &Value, http_code: u64, code: &str) {
 async fn wrong_field_type_is_a_bad_request_with_the_serde_detail() {
     let body = r#"{
         "path": "/tmp",
+        "build": { "command": "true" },
         "startup": {
             "command": { "program": "bun", "args": [] },
             "readiness": {
@@ -116,6 +117,7 @@ async fn missing_content_type_is_a_bad_request() {
 async fn invalid_workload_is_a_validation_error() {
     let body = json!({
         "path": "/tmp",
+        "build": { "command": "true" },
         "workload": {
             "method": "GET",
             "path": "/health",
@@ -134,7 +136,8 @@ async fn invalid_workload_is_a_validation_error() {
 
 #[tokio::test]
 async fn missing_target_path_is_a_bad_request() {
-    let body = json!({ "path": "/definitely/not/a/real/path" }).to_string();
+    let body = json!({ "path": "/definitely/not/a/real/path", "build": { "command": "true" } })
+        .to_string();
 
     let (status, body) = send(post(&body)).await;
 
@@ -180,6 +183,7 @@ async fn wrong_method_is_a_method_not_allowed_error() {
 async fn requests_together_with_duration_is_a_validation_error() {
     let body = json!({
         "path": "/tmp",
+        "build": { "command": "true" },
         "workload": {
             "method": "GET",
             "path": "/health",
@@ -206,6 +210,7 @@ async fn requests_together_with_duration_is_a_validation_error() {
 async fn duration_above_the_maximum_is_a_validation_error() {
     let body = json!({
         "path": "/tmp",
+        "build": { "command": "true" },
         "workload": {
             "method": "GET",
             "path": "/health",
@@ -225,6 +230,7 @@ async fn duration_above_the_maximum_is_a_validation_error() {
 async fn zero_duration_is_a_validation_error() {
     let body = json!({
         "path": "/tmp",
+        "build": { "command": "true" },
         "workload": {
             "method": "GET",
             "path": "/health",
@@ -244,6 +250,7 @@ async fn zero_duration_is_a_validation_error() {
 async fn workload_without_requests_or_duration_is_a_validation_error() {
     let body = json!({
         "path": "/tmp",
+        "build": { "command": "true" },
         "workload": { "method": "GET", "path": "/health", "concurrency": 2 }
     })
     .to_string();

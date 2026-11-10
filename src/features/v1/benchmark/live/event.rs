@@ -17,6 +17,8 @@ pub mod kind {
     pub const WORKSPACE_PHASE: &str = "workspace.phase";
     // Memory and CPU of a workspace mode while it is sampled, evictable like `sample`
     pub const WORKSPACE_SAMPLE: &str = "workspace.sample";
+    // One cleanup command of the cleanup stage: started or finished
+    pub const CLEANUP_STEP: &str = "cleanup.step";
     pub const RUN_COMPLETED: &str = "run.completed";
     pub const RUN_FAILED: &str = "run.failed";
     // Cancellation was requested, the run is still stopping

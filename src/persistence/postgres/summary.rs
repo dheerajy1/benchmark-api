@@ -24,6 +24,7 @@ const SELECT_SUMMARIES: &str = "SELECT r.id, r.target_path, cfg.target_name, \
      m.peak_rss_bytes AS memory_peak_bytes, \
      c.average_percent::float8 AS cpu_average_percent, \
      h.requests_per_second::float8 AS requests_per_second, \
+     h.total_requests AS total_requests, \
      h.p95_ms::float8 AS p95_ms \
      FROM benchmark_runs r \
      LEFT JOIN runtimes rt ON rt.id = r.runtime_id \
@@ -293,6 +294,7 @@ fn summary_row(
         memory_peak_bytes: row.try_get("memory_peak_bytes")?,
         cpu_average_percent: row.try_get("cpu_average_percent")?,
         requests_per_second: row.try_get("requests_per_second")?,
+        total_requests: row.try_get("total_requests")?,
         p95_ms: row.try_get("p95_ms")?,
     })
 }

@@ -76,6 +76,8 @@ The three terminal events carry `persisted`: `true` once the run is stored (alwa
 
 When the run has workspaces, `run.accepted` carries `plan.workspaces` (their number), the `workspaces` stage runs after `workload`, `workspace.phase` reports `{workspace, mode, phase, status}` with `phase` one of `started`, `sampling`, `finished` (`status` only with `finished`), and `workspace.sample` carries `{workspace, mode, elapsed_ms, memory, cpu}` about every 500 ms while a mode is sampled, with the same `memory` and `cpu` shapes as `sample`. Like `sample`, `workspace.sample` events may be evicted from the log.
 
+When the request has any cleanup command (`cleanup`, or `docker.cleanup` of a Docker workspace), `run.accepted` carries `plan.cleanup: true` (otherwise `false`) and a `cleanup` stage runs after the last measurement and before `saving`. `cleanup.step` reports each command: `{step, workspace, phase, status, duration_ms, message}` with `step` `build` or `docker`, `workspace` the workspace name for a `docker` step (otherwise `null`), `phase` `started` or `finished`, and `status` (`success`, `failed` or `timeout`), `duration_ms` and `message` (why it failed) only with `finished`. A failed cleanup does not fail the run.
+
 When a client reads so slowly that samples were evicted before it read them, a control
 frame comes first:
 

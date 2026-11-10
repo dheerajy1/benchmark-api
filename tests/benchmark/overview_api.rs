@@ -136,6 +136,7 @@ fn point(run_id: Uuid, metrics: [Value; 6]) -> Value {
         "memory_peak_bytes": memory,
         "cpu_average_percent": cpu,
         "requests_per_second": rps,
+        "total_requests": if rps.is_null() { Value::Null } else { json!(1000) },
         "p95_ms": p95
     })
 }
@@ -207,6 +208,7 @@ async fn one_complete_run_fills_the_project_totals_latest_and_trends() {
             "memory_peak_bytes": 200,
             "cpu_average_percent": 20.0,
             "requests_per_second": 100.0,
+            "total_requests": 1000,
             "p95_ms": 20.0
         })
     );

@@ -69,6 +69,7 @@ fn duration_workload(seconds: u64, concurrency: u64) -> Value {
 fn request(dir: &Path, script: &str, port: u16, workload: Value) -> BenchmarkRequest {
     serde_json::from_value(json!({
         "path": dir.display().to_string(),
+        "build": { "command": "true", "output_dir": "." },
         "startup": {
             "command": { "program": "bun", "args": ["-e", script] },
             "readiness": {

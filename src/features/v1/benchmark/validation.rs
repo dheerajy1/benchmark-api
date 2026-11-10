@@ -1,16 +1,25 @@
+use std::path::{Component, Path};
+
 use super::{
+    cleanup,
     host::is_loopback,
-    model::BenchmarkRequest,
+    model::{BenchmarkRequest, BuildRequest},
     request::StartupRequest,
     workload::{
         headers,
         plan::{DEFAULT_REQUEST_TIMEOUT, WorkloadPlan},
     },
-    workspace,
+    workspace::{self, command},
 };
 
 // Rejects invalid configuration before anything is built or started
 pub fn validate(request: &BenchmarkRequest) -> Result<(), String> {
+    validate_build(&request.build)?;
+
+    if let Some(cleanup) = &request.cleanup {
+        cleanup::validate(cleanup, "cleanup")?;
+    }
+
     if let Some(startup) = &request.startup {
         validate_startup(startup)?;
     }
@@ -72,6 +81,47 @@ fn validate_startup(startup: &StartupRequest) -> Result<(), String> {
 
     if let Some(readiness_headers) = &readiness.headers {
         headers::parse(readiness_headers)?;
+    }
+
+    Ok(())
+}
+
+fn validate_build(build: &BuildRequest) -> Result<(), String> {
+    if build.command.trim().is_empty() {
+        return Err("build.command must not be empty".to_string());
+    }
+
+    command::split(&build.command).map_err(|message| format!("build.command: {message}"))?;
+
+    if let Some(output_dir) = build.output_dir.as_deref() {
+        validate_output_dir(output_dir)?;
+    }
+
+    Ok(())
+}
+
+// Empty means the runtime default. Anything else must stay inside the project.
+fn validate_output_dir(output_dir: &str) -> Result<(), String> {
+    let output_dir = output_dir.trim();
+
+    if output_dir.is_empty() {
+        return Ok(());
+    }
+
+    if output_dir.chars().any(char::is_control) {
+        return Err("build.output_dir must not contain control characters".to_string());
+    }
+
+    let path = Path::new(output_dir);
+
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir | Component::Prefix(_)))
+    {
+        return Err(
+            "build.output_dir must be a path inside the project, without \"..\"".to_string(),
+        );
     }
 
     Ok(())

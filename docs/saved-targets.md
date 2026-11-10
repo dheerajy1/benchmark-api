@@ -22,6 +22,7 @@ does not load, stops the server with a message that names the setting.
     "kafka-api-gateway": {
       "name": "Kafka API Gateway",
       "path": "/srv/projects/kafka-api-gateway",
+      "build": { "command": "bun run build", "output_dir": "dist" },
       "startup": {
         "command": { "program": "bun", "args": ["run", "start"] },
         "readiness": {
@@ -48,6 +49,7 @@ does not load, stops the server with a message that names the setting.
 
 - Target ids: 1 to 63 lowercase letters, digits or hyphens, not starting with a hyphen.
 - `path` must be absolute.
+- `build.command` is required, `build.output_dir` is optional (relative to `path`, default `target` for Rust and `dist` otherwise). The build is never detected.
 - `startup` and `workload` are optional. A target with a workload must set exactly one of `requests` and `duration_seconds`.
 - A header value is either a literal string or `{ "env": "NAME" }`. The variable is read at startup. A missing variable stops the server and the message names the variable only.
 - Readiness `host` defaults to `127.0.0.1`, `method` to `GET`. Without `headers` the server's health credentials are sent, as in a raw request.

@@ -15,6 +15,7 @@ pub fn to_trend_point(row: TrendRow) -> Result<TrendPoint, OverviewError> {
         memory_peak_bytes: optional_non_negative("memory_peak_bytes", row.memory_peak_bytes)?,
         cpu_average_percent: row.cpu_average_percent,
         requests_per_second: row.requests_per_second,
+        total_requests: optional_non_negative("total_requests", row.total_requests)?,
         p95_ms: row.p95_ms,
     })
 }
