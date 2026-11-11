@@ -23,6 +23,7 @@ mod live {
     pub mod runs;
     pub mod samples;
     pub mod slot;
+    pub mod status_ws;
     pub mod support;
     pub mod ws;
 }

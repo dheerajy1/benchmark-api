@@ -415,9 +415,9 @@ pub struct ActiveRunView {
     pub workload_progress: Option<Value>,
 }
 
-// GET /api/v1/live-runs/active, data is null when nothing runs
-async fn active(State(state): State<AppState>) -> ApiSuccess<Option<ActiveRunView>> {
-    let view = state.live.slot().active().map(|active| {
+// The run that executes now, none when the slot is free
+pub fn active_view(state: &AppState) -> Option<ActiveRunView> {
+    state.live.slot().active().map(|active| {
         let progress = state
             .live
             .registry()
@@ -432,7 +432,12 @@ async fn active(State(state): State<AppState>) -> ApiSuccess<Option<ActiveRunVie
             elapsed_ms: progress.as_ref().map(|progress| progress.elapsed_ms),
             workload_progress: progress.and_then(|progress| progress.workload),
         }
-    });
+    })
+}
+
+// GET /api/v1/live-runs/active, data is null when nothing runs
+async fn active(State(state): State<AppState>) -> ApiSuccess<Option<ActiveRunView>> {
+    let view = active_view(&state);
 
     let message = if view.is_some() {
         "Active run retrieved."

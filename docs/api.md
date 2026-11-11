@@ -528,6 +528,18 @@ For the API pill in the top bar and the `API connected` footer. The UI measures 
 
 When the database cannot be reached the answer is the error shape with `503 SERVICE_UNAVAILABLE`. Other methods answer `405`.
 
+## GET /status/ws
+
+A WebSocket that keeps a dashboard current without polling. The server only sends text frames, one JSON object each:
+
+| Frame | When |
+|---|---|
+| `{ "type": "active", "data": <run or null> }` | on open, and whenever the active run changes. `data` has the shape of [`GET /live-runs/active`](#get-live-runsactive). While a run executes the frame comes about once a second, because its elapsed time changes. An idle API sends nothing more. |
+| `{ "type": "health", "data": { "ok", "database", "version" } }` | on open and every 15 seconds. `database` is `false` when the database does not answer within 5 seconds, and `ok` is then `false` too. The socket stays open. |
+| `{ "type": "pong", "id": <n> }` | the answer to a client frame `{ "type": "ping", "id": <n> }`, so the page can measure the round trip |
+
+Any other client frame is ignored, and a client frame larger than 1 KiB closes the socket. The server pings every 20 seconds and closes with `1001` when no pong comes within 45 seconds. The origin is checked like the live-run socket (`403` before the upgrade). At most 16 status sockets are open at once, one more is accepted and closed with `4429`.
+
 ## GET /live-runs/active
 
 The run that is executing now, for the `Run in progress` chip and to stop duplicate starts. `data` is `null` when nothing runs.

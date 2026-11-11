@@ -48,6 +48,7 @@ src/
 │   ├── error.rs            validation and storage failures
 │   └── model.rs            the overview response
 ├── features/v1/targets/    saved targets: file, catalog, resolve, view, handler
+├── features/v1/status/     GET /status/ws, the dashboard socket (active run, health, ping)
 ├── features/v1/health/
 │   └── handler.rs          GET /health, pings the database
 ├── features/v1/comparison/
