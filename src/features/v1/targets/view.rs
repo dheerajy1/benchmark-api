@@ -21,6 +21,7 @@ pub struct TargetView {
     pub name: String,
     pub path: String,
     pub build: BuildView,
+    pub cleanup: Option<CleanupView>,
     pub startup: Option<StartupView>,
     pub workload: Option<WorkloadView>,
     // Variable names only, never a pasted value
@@ -31,6 +32,13 @@ pub struct TargetView {
 pub struct BuildView {
     pub command: String,
     pub output_dir: Option<String>,
+}
+
+// timeout_seconds is null when the default applies
+#[derive(Debug, Serialize)]
+pub struct CleanupView {
+    pub command: String,
+    pub timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -90,6 +98,10 @@ impl TargetView {
                 command: entry.build.command.clone(),
                 output_dir: entry.build.output_dir.clone(),
             },
+            cleanup: entry.cleanup.as_ref().map(|cleanup| CleanupView {
+                command: cleanup.command.clone(),
+                timeout_seconds: cleanup.timeout_seconds,
+            }),
             startup: entry.startup.as_ref().map(StartupView::from_spec),
             workload: entry.workload.as_ref().map(WorkloadView::from_spec),
             workspaces: entry

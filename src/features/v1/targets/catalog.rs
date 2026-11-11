@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::features::v1::benchmark::{
-    model::{BuildCommand, BuildRequest},
+    model::{BuildCommand, BuildRequest, CleanupRequest},
     validation,
     workspace::config::WorkspaceRequest,
 };
@@ -22,6 +22,7 @@ pub struct TargetEntry {
     pub name: String,
     pub path: PathBuf,
     pub build: BuildRequest,
+    pub cleanup: Option<CleanupRequest>,
     pub startup: Option<StartupSpec>,
     pub workload: Option<WorkloadSpec>,
     pub workspaces: Vec<WorkspaceRequest>,
@@ -159,6 +160,7 @@ fn build_entry(
             command: file.build.command,
             output_dir: file.build.output_dir,
         },
+        cleanup: file.cleanup,
         startup,
         workload,
         workspaces: file.workspaces,

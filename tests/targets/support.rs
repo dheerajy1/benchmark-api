@@ -59,6 +59,7 @@ pub fn targets_json(dir: &Path) -> String {
                 "name": "Demo API",
                 "path": dir.display().to_string(),
                 "build": { "command": "bun run build", "output_dir": "dist" },
+                "cleanup": { "command": "docker image prune -f", "timeout_seconds": 60 },
                 "startup": {
                     "command": { "program": "bun", "args": ["run", "dev"] },
                     "readiness": {

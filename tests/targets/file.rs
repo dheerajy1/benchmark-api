@@ -16,6 +16,17 @@ fn a_valid_file_loads_with_literal_and_environment_headers() {
     assert_eq!(demo.name, "Demo API");
     assert!(demo.startup.is_some());
     assert!(demo.workload.is_some());
+
+    let cleanup = demo.cleanup.as_ref().expect("demo has a cleanup");
+    assert_eq!(cleanup.command, "docker image prune -f");
+    assert_eq!(cleanup.timeout_seconds, Some(60));
+    assert!(
+        catalog
+            .get("plain")
+            .expect("plain exists")
+            .cleanup
+            .is_none()
+    );
 }
 
 #[test]

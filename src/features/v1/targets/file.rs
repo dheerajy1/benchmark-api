@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 use serde::Deserialize;
 
-use crate::features::v1::benchmark::workspace::config::WorkspaceRequest;
+use crate::features::v1::benchmark::{model::CleanupRequest, workspace::config::WorkspaceRequest};
 
 // The whole targets file: { "targets": { "<id>": { ... } } }. Deliberately without Debug,
 // because header values may be literals.
@@ -19,6 +19,9 @@ pub struct TargetFile {
     pub path: PathBuf,
     // Required, the build command is never detected
     pub build: BuildFile,
+    // Optional, runs in the project path when a run of this target is over
+    #[serde(default)]
+    pub cleanup: Option<CleanupRequest>,
     #[serde(default)]
     pub startup: Option<StartupFile>,
     #[serde(default)]

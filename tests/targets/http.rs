@@ -67,6 +67,11 @@ async fn a_saved_target_runs_while_custom_runs_are_disabled() {
 
     assert_eq!(workload.duration_seconds, Some(30));
     assert_eq!(workload.concurrency, 50);
+
+    let cleanup = seen[0].cleanup.as_ref().expect("the target's cleanup runs");
+
+    assert_eq!(cleanup.command, "docker image prune -f");
+    assert_eq!(cleanup.timeout_seconds, Some(60));
 }
 
 #[tokio::test]
@@ -185,6 +190,10 @@ async fn saved_targets_are_listed_with_names_only() {
         .iter()
         .find(|target| target["id"] == "demo")
         .unwrap();
+    assert_eq!(
+        demo["cleanup"],
+        json!({ "command": "docker image prune -f", "timeout_seconds": 60 })
+    );
     assert_eq!(demo["workload"]["mode"], "duration");
     assert_eq!(demo["workload"]["header_names"], json!(["X-Client-Secret"]));
     assert_eq!(

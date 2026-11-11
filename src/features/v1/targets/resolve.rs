@@ -132,7 +132,7 @@ pub fn build_request(
     BenchmarkRequest {
         path: entry.path.clone(),
         build: entry.build.clone(),
-        cleanup: None,
+        cleanup: entry.cleanup.clone(),
         startup,
         workload,
         workspaces: entry.workspaces.clone(),

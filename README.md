@@ -72,11 +72,9 @@ The API answers browsers from these origins only: `http://localhost:5002`, `http
 
 | Document | Content |
 | --- | --- |
-| [docs/architecture.md](docs/architecture.md) | Layers, modules, request flow, error and response shapes |
-| [docs/lifecycle.md](docs/lifecycle.md) | The benchmark lifecycle step by step |
-| [docs/api.md](docs/api.md) | Endpoints, parameters, pagination, errors, request ids, CORS |
-| [docs/live-runs-api.md](docs/live-runs-api.md) | Live runs, events, WebSocket |
-| [docs/live-run-cancellation.md](docs/live-run-cancellation.md) | Cancelling a run, how stopped runs are stored |
+| [docs/architecture.md](docs/architecture.md) | Layers, modules, the benchmark lifecycle, request flow, error and response shapes |
+| [docs/api.md](docs/api.md) | Endpoints, saved targets, parameters, pagination, errors, request ids, CORS |
+| [docs/live-runs.md](docs/live-runs.md) | Live runs, events, WebSocket, samples, cancelling |
 | [docs/development.md](docs/development.md) | Commands, tests, conventions |
 | [docs/postgres/README.md](docs/postgres/README.md) | Database setup, migrations, schema, maintenance |
 
